@@ -215,7 +215,8 @@ class DB:
         self, player_names: List[str]
     ) -> Optional[Tuple[Team, Team]]:
         """
-        Creates balanced teams using `TeamCreator` and stores them in the database.
+        Creates balanced teams using `TeamCreator` and stores them in the
+        database.
 
         :param player_names:
             List of player names.

@@ -61,9 +61,12 @@ def list_players(args):
     for player in players:
         print(
             f"- {player['name']} | Form: {player['form']} | "
-            f"Shooting: {player['shooting']} | Dribbling: {player['dribbling']} | "
-            f"Passing: {player['passing']} | Tackling: {player['tackling']} | "
-            f"Fitness: {player['fitness']} | Goalkeeping: {player['goalkeeping']}"
+            f"Shooting: {player['shooting']} | "
+            f"Dribbling: {player['dribbling']} | "
+            f"Passing: {player['passing']} "
+            f"| Tackling: {player['tackling']} | "
+            f"Fitness: {player['fitness']} "
+            f"| Goalkeeping: {player['goalkeeping']}"
         )
 
 
