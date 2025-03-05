@@ -1,6 +1,6 @@
 import pytest
 
-from player.player import Attributes, Player
+from src.player import Attributes, Player
 
 
 @pytest.fixture

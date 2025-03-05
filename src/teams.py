@@ -1,20 +1,14 @@
 """
 This module defines the `Team` class and functions for creating balanced teams
 from a list of players. Teams are balanced based on overall player ratings,
-and if one team is smaller, a 20% bonus is applied to compensate.
-
-Classes:
-    - Team: Represents a football team with a list of players and an optional bonus.
-
-Functions:
-    - distribute_players: Distributes players into two teams using a zigzag method.
-    - apply_team_bonus: Applies a 20% rating bonus to the smaller team.
-    - create_balanced_teams: Creates two balanced teams based on player ratings.
+and if one team is smaller, a boost is applied.
 """
 
 from typing import List, Tuple
 
 from .player import Player
+
+SMALL_TEAM_BOOST = 1.2
 
 
 class Team:
@@ -105,9 +99,11 @@ def apply_team_bonus(team_1: Team, team_2: Team) -> None:
         The second team.
     """
     if len(team_1.players) > len(team_2.players):  # Team 1 is larger
-        team_2.bonus = 1.2  # Apply a 20% boost to the smaller team
+        team_2.bonus = (
+            SMALL_TEAM_BOOST  # Apply a 20% boost to the smaller team
+        )
     elif len(team_2.players) > len(team_1.players):  # Team 2 is larger
-        team_1.bonus = 1.2
+        team_1.bonus = SMALL_TEAM_BOOST
 
 
 def create_balanced_teams(

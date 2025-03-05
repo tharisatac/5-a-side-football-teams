@@ -3,18 +3,8 @@ This module defines the Player and Attributes classes for managing player
 info, including their attributes such as shooting, dribbling, passing, tackling, 
 fitness, and goalkeeping. Each attribute is stored as a raw value, and the 
 overall rating of the player is calculated using TrueSkill, which dynamically 
-adjusts based on performance.
+adjusts based on form.
 
-Classes:
-    - Shooting: Represents a player's shooting ability as a raw score.
-    - Dribbling: Represents a player's dribbling ability as a raw score.
-    - Passing: Represents a player's passing ability as a raw score.
-    - Tackling: Represents a player's tackling ability as a raw score.
-    - Fitness: Represents a player's fitness level as a raw score.
-    - Goalkeeping: Represents a player's goalkeeping ability as a raw score.
-    - Attributes: Groups all player attributes into a single dataclass.
-    - Player: Represents a player with a name, attributes, and form. Provides a 
-              method to calculate the player's overall rating using TrueSkill.
 """
 
 from dataclasses import dataclass

@@ -1,7 +1,7 @@
 import pytest
 
-from player.player import Attributes, Player
-from player.teams import (
+from src.player import Attributes, Player
+from src.teams import (
     InvalidTeamSizeError,
     Team,
     apply_team_bonus,

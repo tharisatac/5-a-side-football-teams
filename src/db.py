@@ -9,7 +9,7 @@ Tables:
 """
 
 import sqlite3
-from typing import List, Optional
+from typing import Dict, List, Optional, Tuple
 
 from .player import Attributes, Player
 from .teams import Team, create_balanced_teams
@@ -66,6 +66,12 @@ class DB:
             FOREIGN KEY (match_id) REFERENCES matches(id),
             FOREIGN KEY (player_id) REFERENCES players(id),
             PRIMARY KEY (match_id, player_id)
+        );
+
+        CREATE TABLE IF NOT EXISTS last_teams (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            player_name TEXT NOT NULL,
+            team TEXT CHECK(team IN ('team1', 'team2')) NOT NULL
         );
         """
         )
@@ -177,26 +183,87 @@ class DB:
         )
         return Player(name=name, attributes=attributes, form=row[6])
 
-    def create_teams(self, player_names: List[str]) -> tuple[Team, Team]:
+    def get_all_players(self) -> List[Dict]:
         """
-        Creates and stores dynamically generated teams from player names.
+        Retrieves all players from the database.
+
+        :return:
+            List of player dictionaries.
+        """
+        self.cursor.execute(
+            """
+        SELECT name, shooting, dribbling, passing, tackling, fitness,
+               goalkeeping, form FROM players;
+        """
+        )
+
+        rows = self.cursor.fetchall()
+        return [
+            {
+                "name": row[0],
+                "shooting": row[1],
+                "dribbling": row[2],
+                "passing": row[3],
+                "tackling": row[4],
+                "fitness": row[5],
+                "goalkeeping": row[6],
+                "form": row[7],
+            }
+            for row in rows
+        ]
+
+    def create_teams(
+        self, player_names: List[str]
+    ) -> Optional[Tuple[Team, Team]]:
+        """
+        Creates balanced teams and stores them in the database.
 
         :param player_names:
-            A list of player names.
+            List of player names.
         :return:
-            A tuple of two Team objects or None if errors occur.
+            Two teams (team1, team2) or None if teams could not be created.
         """
         players = [self.get_player_by_name(name) for name in player_names]
-        formatted_players = [p for p in players if p is not None]
+        players = [p for p in players if p]  # Ensure only valid players
 
         team1, team2 = create_balanced_teams(
-            formatted_players,
-            len(formatted_players) // 2,
-            len(formatted_players) - len(formatted_players) // 2,
+            players, len(players) // 2, len(players) - len(players) // 2
         )
-        self.last_teams["team1"] = team1.players
-        self.last_teams["team2"] = team2.players
+
+        # Remove previous teams
+        self.cursor.execute("DELETE FROM last_teams")
+
+        #  Store new teams
+        for player in team1.players:
+            self.cursor.execute(
+                "INSERT INTO last_teams (player_name, team) VALUES (?, ?)",
+                (player.name, "team1"),
+            )
+        for player in team2.players:
+            self.cursor.execute(
+                "INSERT INTO last_teams (player_name, team) VALUES (?, ?)",
+                (player.name, "team2"),
+            )
+
+        self.conn.commit()
+
         return team1, team2
+
+    def get_last_teams(self) -> Dict[str, List[str]]:
+        """
+        Retrieves the last stored teams from the database.
+
+        :return:
+            Dictionary with player names in "team1" and "team2".
+        """
+        self.cursor.execute("SELECT player_name, team FROM last_teams")
+        rows = self.cursor.fetchall()
+
+        teams = {"team1": [], "team2": []}
+        for player_name, team in rows:
+            teams[team].append(player_name)
+
+        return teams
 
     def record_match_result(self, winning_team: str) -> None:
         """
@@ -205,45 +272,71 @@ class DB:
         :param winning_team:
             "team1" or "team2" indicating the winning team.
         """
-        if not self.last_teams["team1"] or not self.last_teams["team2"]:
-            print("Error: No match data available.")
+        teams = self.get_last_teams()
+        if not teams["team1"] or not teams["team2"]:
+            print("❌ Error: No match data available.")
             return
 
-        team1 = self.last_teams["team1"]
-        team2 = self.last_teams["team2"]
         winner = 1 if winning_team == "team1" else 2
 
-        # Update player forms using streak-based logic
-        for player in team1 + team2:
-            form_change = 1 if player in self.last_teams[winning_team] else -1
-            new_form = max(
-                1, player.form + form_change
-            )  # Prevent form from dropping below 1
-            self.update_player_attribute(player.name, "form", new_form)
-
-        # Save match in database
-        self.cursor.execute(
-            "INSERT INTO matches (team_1_score, team_2_score, winner) VALUES (?, ?, ?)",
-            (0, 0, winner),
-        )  # Scores can be added later
-        match_id = self.cursor.lastrowid
-
-        # Fetch player ID before inserting into `match_players`
-        for player in team1 + team2:
-            self.cursor.execute(
-                "SELECT id FROM players WHERE name = ?", (player.name,)
-            )
-            player_id = self.cursor.fetchone()
-
-            if player_id:  # Ensure the player exists before inserting
-                team_number = 1 if player in team1 else 2
+        # Update player forms
+        for team_name, team_number in [("team1", 1), ("team2", 2)]:
+            for player_name in teams[team_name]:
                 self.cursor.execute(
-                    "INSERT INTO match_players (match_id, player_id, team_number) VALUES (?, ?, ?)",
-                    (match_id, player_id[0], team_number),
+                    "SELECT form FROM players WHERE name = ?", (player_name,)
+                )
+                current_form = self.cursor.fetchone()[0]
+
+                # ✅ Increase form for winners, decrease for losers
+                new_form = (
+                    current_form + 1
+                    if team_name == winning_team
+                    else max(1, current_form - 1)
                 )
 
+                self.cursor.execute(
+                    "UPDATE players SET form = ? WHERE name = ?",
+                    (new_form, player_name),
+                )
+
+        # Store match result in database
+        self.cursor.execute(
+            """
+        INSERT INTO matches (team_1_score, team_2_score, winner)
+        VALUES (?, ?, ?)
+        """,
+            (0, 0, winner),
+        )
+
+        match_id = self.cursor.lastrowid
+
+        # Store match players
+        for team_name, team_number in [("team1", 1), ("team2", 2)]:
+            for player_name in teams[team_name]:
+                self.cursor.execute(
+                    """
+                INSERT INTO match_players (match_id, player_id, team_number)
+                VALUES (?, (SELECT id FROM players WHERE name = ?), ?)
+                """,
+                    (match_id, player_name, team_number),
+                )
+
+        # Remove last teams from database after match is recorded
+        self.cursor.execute("DELETE FROM last_teams")
         self.conn.commit()
-        print(f"Match recorded! Winning team: {winning_team.capitalize()}")
+
+        print(f"✅ Match recorded! Winning team: {winning_team.capitalize()}")
+
+    def clear_database(self):
+        """
+        Deletes all data from the database, resetting it to an empty state.
+        """
+        self.cursor.execute("DELETE FROM players")
+        self.cursor.execute("DELETE FROM matches")
+        self.cursor.execute("DELETE FROM match_players")
+        self.cursor.execute("DELETE FROM last_teams")
+        self.conn.commit()
+        print("✅ Database cleared successfully!")
 
     def close(self) -> None:
         """

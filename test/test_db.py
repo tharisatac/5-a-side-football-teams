@@ -2,9 +2,8 @@ import os
 
 import pytest
 
-from player.db import DB
-from player.player import Attributes, Player
-from player.teams import Team, create_balanced_teams
+from src.db import DB
+from src.player import Attributes, Player
 
 
 @pytest.fixture(scope="function")
@@ -140,9 +139,7 @@ def test_record_match_result(db, sample_players):
     for player in sample_players:
         db.add_player(player)
 
-    team1, team2 = db.create_teams(
-        ["Player 1", "Player 2", "Player 3", "Player 4"]
-    )
+    db.create_teams(["Player 1", "Player 2", "Player 3", "Player 4"])
     db.record_match_result("team1")
 
     # Ensure player forms updated
@@ -166,6 +163,21 @@ def test_get_player_by_name(db, sample_players):
     player = db.get_player_by_name(sample_players[0].name)
     assert player is not None
     assert player.name == sample_players[0].name
+
+
+def test_get_all_players(db, sample_players):
+    """
+    Tests retrieving all players from the database.
+    """
+    for player in sample_players:
+        db.add_player(player)
+
+    players = db.get_all_players()
+    assert len(players) == len(sample_players)
+
+    player_names = {p["name"] for p in players}
+    expected_names = {p.name for p in sample_players}
+    assert player_names == expected_names
 
 
 def test_get_nonexistent_player(db):
