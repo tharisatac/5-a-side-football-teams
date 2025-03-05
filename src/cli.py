@@ -152,22 +152,38 @@ def main():
     add_parser = player_subparsers.add_parser("add", help="Add a new player")
     add_parser.add_argument("name", type=str, help="Player's name")
     add_parser.add_argument(
-        "--shooting", type=int, required=True, help="Shooting skill"
+        "-s",
+        "--shooting",
+        type=int,
+        required=True,
+        help="Shooting skill (1-10)",
     )
     add_parser.add_argument(
-        "--dribbling", type=int, required=True, help="Dribbling skill"
+        "-d",
+        "--dribbling",
+        type=int,
+        required=True,
+        help="Dribbling skill (1-10)",
     )
     add_parser.add_argument(
-        "--passing", type=int, required=True, help="Passing skill"
+        "-p", "--passing", type=int, required=True, help="Passing skill (1-10)"
     )
     add_parser.add_argument(
-        "--tackling", type=int, required=True, help="Tackling skill"
+        "-t",
+        "--tackling",
+        type=int,
+        required=True,
+        help="Tackling skill (1-10)",
     )
     add_parser.add_argument(
-        "--fitness", type=int, required=True, help="Fitness level"
+        "-f", "--fitness", type=int, required=True, help="Fitness level (1-10)"
     )
     add_parser.add_argument(
-        "--goalkeeping", type=int, required=True, help="Goalkeeping skill"
+        "-g",
+        "--goalkeeping",
+        type=int,
+        required=True,
+        help="Goalkeeping skill (1-10)",
     )
     add_parser.set_defaults(func=add_player)
 
