@@ -12,8 +12,10 @@ import os
 import sqlite3
 from typing import Dict, List, Optional, Tuple
 
+import trueskill
+
 from .player import Attributes, Player
-from .teams import InvalidTeamSizeError, Team, TeamCreator
+from .teams import Team, TeamCreator
 
 
 class DB:
@@ -48,7 +50,9 @@ class DB:
             tackling INTEGER,
             fitness INTEGER,
             goalkeeping INTEGER,
-            form INTEGER DEFAULT 5
+            form INTEGER DEFAULT 5,
+            trueskill_mu REAL DEFAULT 25,      
+            trueskill_sigma REAL DEFAULT 8.333 
         );
 
         CREATE TABLE IF NOT EXISTS matches (
@@ -88,9 +92,9 @@ class DB:
         try:
             self.cursor.execute(
                 """
-            INSERT INTO players (name, shooting, dribbling, passing, tackling, fitness, goalkeeping, form)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """,
+               INSERT INTO players (name, shooting, dribbling, passing, tackling, fitness, goalkeeping, form, trueskill_mu, trueskill_sigma)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+               """,
                 (
                     player.name,
                     player.attributes.shooting.score,
@@ -100,6 +104,8 @@ class DB:
                     player.attributes.fitness.score,
                     player.attributes.goalkeeping.score,
                     player.form,
+                    player.trueskill_rating.mu,
+                    player.trueskill_rating.sigma,
                 ),
             )
             self.conn.commit()
@@ -160,7 +166,7 @@ class DB:
         """
         self.cursor.execute(
             """
-        SELECT shooting, dribbling, passing, tackling, fitness, goalkeeping, form
+        SELECT shooting, dribbling, passing, tackling, fitness, goalkeeping, form, trueskill_mu, trueskill_sigma
         FROM players WHERE name = ?
         """,
             (name,),
@@ -180,7 +186,9 @@ class DB:
                 "goalkeeping": row[5],
             }
         )
-        return Player(name=name, attributes=attributes, form=row[6])
+        player = Player(name=name, attributes=attributes, form=row[6])
+        player.trueskill_rating = trueskill.Rating(mu=row[7], sigma=row[8])
+        return player
 
     def get_all_players(self) -> List[Dict]:
         """
@@ -277,61 +285,60 @@ class DB:
 
     def record_match_result(self, winning_team: str) -> None:
         """
-        Records the last match result and updates player forms.
-
-        :param winning_team:
-            "team1" or "team2" indicating the winning team.
+        Records the last match result and updates player forms and TrueSkill ratings.
         """
         teams = self.get_last_teams()
         if not teams["team1"] or not teams["team2"]:
             print("❌ Error: No match data available.")
             return
 
-        winner = 1 if winning_team == "team1" else 2
+        # Convert player names to Player objects
+        team1_players = [
+            self.get_player_by_name(name) for name in teams["team1"]
+        ]
+        formatted_team1_players: List[Player] = [
+            player for player in team1_players if player is not None
+        ]
 
-        # Update player forms
-        for team_name, team_number in [("team1", 1), ("team2", 2)]:
-            for player_name in teams[team_name]:
-                self.cursor.execute(
-                    "SELECT form FROM players WHERE name = ?", (player_name,)
-                )
-                current_form = self.cursor.fetchone()[0]
+        team2_players = [
+            self.get_player_by_name(name) for name in teams["team2"]
+        ]
+        formatted_team2_players: List[Player] = [
+            player for player in team2_players if player is not None
+        ]
 
-                # Increase form for winners, decrease for losers
-                new_form = (
-                    current_form + 1
-                    if team_name == winning_team
-                    else max(1, current_form - 1)
-                )
+        # Determine winners and losers
+        team1_won = winning_team == "team1"
 
-                self.cursor.execute(
-                    "UPDATE players SET form = ? WHERE name = ?",
-                    (new_form, player_name),
-                )
+        # Update TrueSkill & form for all players
+        for player in formatted_team1_players:
+            player.update_trueskill(won=team1_won)
 
-        # Store match result in database
+        for player in formatted_team2_players:
+            player.update_trueskill(won=not team1_won)
+
+        # Persist updated player ratings and form to the database
+        for player in formatted_team1_players + formatted_team2_players:
+            self.cursor.execute(
+                """
+                UPDATE players SET form = ?, trueskill_mu = ?, trueskill_sigma = ? WHERE name = ?
+                """,
+                (
+                    player.form,
+                    player.trueskill_rating.mu,
+                    player.trueskill_rating.sigma,
+                    player.name,
+                ),
+            )
+
+        # Store match result in the database
+        winner = 1 if team1_won else 2
         self.cursor.execute(
-            """
-        INSERT INTO matches (team_1_score, team_2_score, winner)
-        VALUES (?, ?, ?)
-        """,
+            "INSERT INTO matches (team_1_score, team_2_score, winner) VALUES (?, ?, ?)",
             (0, 0, winner),
         )
 
-        match_id = self.cursor.lastrowid
-
-        # Store match players
-        for team_name, team_number in [("team1", 1), ("team2", 2)]:
-            for player_name in teams[team_name]:
-                self.cursor.execute(
-                    """
-                INSERT INTO match_players (match_id, player_id, team_number)
-                VALUES (?, (SELECT id FROM players WHERE name = ?), ?)
-                """,
-                    (match_id, player_name, team_number),
-                )
-
-        # Remove last teams from database after match is recorded
+        # Clear last teams after match
         self.cursor.execute("DELETE FROM last_teams")
         self.conn.commit()
 

@@ -36,36 +36,36 @@ def sample_players():
     """
     player_data = [
         {
-            "shooting": 80,
-            "dribbling": 70,
-            "passing": 90,
-            "tackling": 60,
-            "fitness": 85,
-            "goalkeeping": 50,
+            "shooting": 8,
+            "dribbling": 7,
+            "passing": 9,
+            "tackling": 6,
+            "fitness": 9,
+            "goalkeeping": 5,
         },
         {
-            "shooting": 75,
-            "dribbling": 75,
-            "passing": 80,
-            "tackling": 70,
-            "fitness": 80,
-            "goalkeeping": 60,
+            "shooting": 7,
+            "dribbling": 7,
+            "passing": 8,
+            "tackling": 7,
+            "fitness": 8,
+            "goalkeeping": 6,
         },
         {
-            "shooting": 60,
-            "dribbling": 85,
-            "passing": 70,
-            "tackling": 65,
-            "fitness": 70,
-            "goalkeeping": 55,
+            "shooting": 6,
+            "dribbling": 8,
+            "passing": 7,
+            "tackling": 6,
+            "fitness": 7,
+            "goalkeeping": 5,
         },
         {
-            "shooting": 85,
-            "dribbling": 60,
-            "passing": 90,
-            "tackling": 50,
-            "fitness": 90,
-            "goalkeeping": 70,
+            "shooting": 8,
+            "dribbling": 6,
+            "passing": 9,
+            "tackling": 5,
+            "fitness": 9,
+            "goalkeeping": 7,
         },
     ]
     return [
@@ -223,3 +223,106 @@ def test_record_match_without_teams(db):
     match_count = db.cursor.fetchone()[0]
 
     assert match_count == 0  # No matches should be recorded
+
+
+def test_add_player_trueskill(db, sample_players):
+    """
+    Tests that a player's TrueSkill rating is stored and retrieved correctly.
+    """
+    player = sample_players[0]
+    db.add_player(player)
+
+    # Retrieve player from DB
+    db.cursor.execute(
+        "SELECT trueskill_mu, trueskill_sigma FROM players WHERE name = ?",
+        (player.name,),
+    )
+    mu, sigma = db.cursor.fetchone()
+
+    assert mu == pytest.approx(player.trueskill_rating.mu, rel=1e-2)
+    assert sigma == pytest.approx(player.trueskill_rating.sigma, rel=1e-2)
+
+
+def test_trueskill_updates_after_match(db, sample_players):
+    """
+    Tests that TrueSkill ratings update correctly after a match.
+    """
+    for player in sample_players:
+        db.add_player(player)
+
+    # Create teams dynamically
+    db.create_teams(["Player 1", "Player 2", "Player 3", "Player 4"])
+    teams = db.get_last_teams()
+
+    winning_team = "team1"
+    losing_team = "team2"
+
+    # Get initial TrueSkill values
+    initial_trueskill = {}
+    for team_name, players in teams.items():
+        for player_name in players:
+            db.cursor.execute(
+                "SELECT trueskill_mu FROM players WHERE name = ?",
+                (player_name,),
+            )
+            initial_trueskill[player_name] = db.cursor.fetchone()[0]
+
+    # Record match result
+    db.record_match_result(winning_team)
+
+    # Verify TrueSkill updates
+    for player_name in teams[winning_team]:  # Winners should increase
+        db.cursor.execute(
+            "SELECT trueskill_mu FROM players WHERE name = ?",
+            (player_name,),
+        )
+        new_trueskill = db.cursor.fetchone()[0]
+        assert (
+            new_trueskill > initial_trueskill[player_name]
+        ), f"❌ {player_name} should have increased TrueSkill but got {new_trueskill}"
+
+    for player_name in teams[losing_team]:  # Losers should decrease
+        db.cursor.execute(
+            "SELECT trueskill_mu FROM players WHERE name = ?",
+            (player_name,),
+        )
+        new_trueskill = db.cursor.fetchone()[0]
+        assert (
+            new_trueskill < initial_trueskill[player_name]
+        ), f"❌ {player_name} should have decreased TrueSkill but got {new_trueskill}"
+
+
+def test_trueskill_remains_within_bounds(db, sample_players):
+    """
+    Ensures TrueSkill never exceeds reasonable limits even after many matches.
+    """
+    for player in sample_players:
+        db.add_player(player)
+
+    db.create_teams(["Player 1", "Player 2", "Player 3", "Player 4"])
+    teams = db.get_last_teams()
+    winning_team = "team1"
+    losing_team = "team2"
+
+    # Simulate multiple wins
+    for _ in range(50):  # High number of matches
+        db.record_match_result(winning_team)
+
+    # Verify TrueSkill does not exceed a reasonable cap
+    for player_name in teams[winning_team]:
+        db.cursor.execute(
+            "SELECT trueskill_mu FROM players WHERE name = ?", (player_name,)
+        )
+        mu = db.cursor.fetchone()[0]
+        assert (
+            mu <= 10
+        ), f"❌ {player_name}'s TrueSkill is unreasonably high: {mu}"
+
+    for player_name in teams[losing_team]:
+        db.cursor.execute(
+            "SELECT trueskill_mu FROM players WHERE name = ?", (player_name,)
+        )
+        mu = db.cursor.fetchone()[0]
+        assert (
+            mu >= 1
+        ), f"❌ {player_name}'s TrueSkill is unreasonably low: {mu}"

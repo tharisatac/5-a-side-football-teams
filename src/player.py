@@ -145,46 +145,76 @@ class Attributes:
 @dataclass
 class Player:
     """
-    Represents a player with a name, attributes, and form.
+    Represents a player with a name, attributes, form, and TrueSkill rating.
 
-    :param name:
-        The player's name.
-    :param attributes:
-        An instance of the `Attributes` class representing the player's
-        skill attributes.
-    :param form:
-        A multiplier that adjusts the player's overall rating based on
-        current form.
-        This ranges from 0 to 10, where the former is no form and 10 is super
-        hot fire form.
-
-    Methods:
-        - get_overall_rating():
-            Calculates the player's overall rating based on attributes
-            and form using TrueSkill.
+    :param name: Player's name.
+    :param attributes: An instance of `Attributes` containing player stats.
+    :param form: Represents current player form (affects rating).
     """
 
     name: str
     attributes: Attributes
-    form: int
+    form: int  # 0-10, affecting performance
+
+    min_sigma: float = 1.0  # Ensure sigma never drops to 0
+    mu: float = 5.0
+
+    def __post_init__(self):
+        """Ensures valid form range and initializes TrueSkill rating."""
+        # Clamp the form between 0 and 10
+        self.form = max(0, min(self.form, 10))
+
+        # Initialize TrueSkill rating based on base player rating
+        self.mu = self._get_base_rating()
+        self._calculate_trueskill()
+
+    def _calculate_trueskill(self):
+        """
+        Calculate the TrueSkill.
+        """
+        self.trueskill_rating = trueskill.Rating(
+            mu=self.mu,
+            sigma=max(10 - self.form, self.min_sigma),
+        )
+
+    def _get_base_rating(self) -> float:
+        """
+        Compute base rating as the mean of attributes.
+
+        :return:
+            The player's base skill rating.
+        """
+        total_rating = sum(
+            getattr(self.attributes, attr).get_score()
+            for attr in vars(self.attributes)
+        )
+        return total_rating / 6  # Normalize the rating
+
+    def update_trueskill(self, won: bool):
+        """
+        Updates the player's TrueSkill rating and form after a match.
+
+        :param won: True if the player won, False otherwise.
+        """
+        # Form should remain between 0-10
+        if won:
+            self.form = min(self.form + 1, 10)
+        else:
+            self.form = max(self.form - 1, 0)
+
+        # Dynamic adjustment
+        adjustment_factor = 1 + 0.1 * self.form if won else 0.9
+
+        # Clamp the TrueSkill value within realistic limits
+        self.mu = min(max(self.trueskill_rating.mu * adjustment_factor, 1), 10)
+
+        self.trueskill_rating = trueskill.Rating(
+            mu=self.mu, sigma=max(10 - self.form, self.min_sigma)
+        )
 
     def get_overall_rating(self) -> float:
         """
-        Get the player's overall rating, considering their form and attributes.
-        This uses TrueSkill to calculate the rating based on the player's
-        attributes and form.
-
-        :return:
-            A float representing the player's overall rating, adjusted by their
-            form (e.g., if form is positive, it boosts the rating).
+        Get the overall rating of the player, taking form into account.
         """
-        total_rating = sum(
-            getattr(self.attributes, attribute).get_score()
-            for attribute in vars(self.attributes)
-        )
-
-        # Normalize rating to a mean value
-        true_skill_rating = trueskill.Rating(mu=total_rating / 6, sigma=8.333)
-
-        # Adjust based on form
-        return true_skill_rating.mu * (1 + 0.05 * self.form)
+        self._calculate_trueskill()
+        return self.trueskill_rating.mu * (1 + 0.05 * self.form)
