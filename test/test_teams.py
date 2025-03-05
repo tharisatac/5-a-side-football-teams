@@ -1,17 +1,21 @@
 import pytest
 
 from player.player import Attributes, Player
-from player.teams import InvalidTeamSizeError, create_balanced_teams
+from player.teams import (
+    InvalidTeamSizeError,
+    Team,
+    apply_team_bonus,
+    create_balanced_teams,
+)
 
 
 @pytest.fixture
 def players():
     """
-    Fixture to create a list of players for testing. Each player is initialized
-    with custom attribute values representing their skill ratings.
+    Creates a list of test players with varying attributes.
 
     :return:
-        A list of Player objects (enough for testing a 5v5 or 6v5 game).
+        A list of Player objects.
     """
     player_data = [
         {
@@ -103,82 +107,154 @@ def players():
             "goalkeeping": 55,
         },
     ]
-    players = []
-    for data in player_data:
-        attributes = Attributes.from_values(data)
-        player = Player(name="Player", attributes=attributes, form=5)
-        players.append(player)
-    return players
+    return [
+        Player(
+            name=f"Player {i+1}",
+            attributes=Attributes.from_values(data),
+            form=5,
+        )
+        for i, data in enumerate(player_data)
+    ]
 
 
 def test_create_balanced_teams_with_bonus_5v4(players):
     """
-    Test teams for a 5v4 split with a 20% bonus to the smaller team.
+    Tests teams for a 5v4 split with a 20% bonus applied to the smaller team.
 
-    :param players: A list of Player objects.
+    :param players:
+        A list of Player objects.
     """
     test_players = players[:9]
-    team_1, team_2 = create_balanced_teams(
-        test_players, team_1_size=5, team_2_size=4
-    )
+    team_1, team_2 = create_balanced_teams(test_players, 5, 4)
 
-    assert len(team_1) == 5
-    assert len(team_2) == 4
+    assert len(team_1.players) == 5
+    assert len(team_2.players) == 4
 
-    total_team_1_rating = sum(player.get_overall_rating() for player in team_1)
-    total_team_2_rating = sum(player.get_overall_rating() for player in team_2)
+    apply_team_bonus(team_1, team_2)
 
-    total_team_2_rating_with_bonus = total_team_2_rating * 1.20
-    assert total_team_2_rating_with_bonus == 480
-    assert total_team_1_rating == 562.5
+    total_team_1_rating = team_1.get_overall_rating()
+    total_team_2_rating = team_2.get_overall_rating()
+
+    assert total_team_2_rating == pytest.approx(total_team_1_rating, rel=0.1)
 
 
 def test_create_balanced_teams_with_bonus_6v5(players):
     """
-    Test teams for a 6v5 split with a 20% bonus to the smaller team.
+    Tests teams for a 6v5 split with a 20% bonus applied to the smaller team.
 
-    :param players: A list of Player objects.
+    :param players:
+        A list of Player objects.
     """
-    test_players = players[:]
-    team_1, team_2 = create_balanced_teams(
-        test_players, team_1_size=6, team_2_size=5
+    test_players = players[:11]
+    team_1, team_2 = create_balanced_teams(test_players, 6, 5)
+
+    assert len(team_1.players) == 6
+    assert len(team_2.players) == 5
+
+    apply_team_bonus(team_1, team_2)
+
+    total_team_1_rating = team_1.get_overall_rating()
+    total_team_2_rating = team_2.get_overall_rating()
+
+    assert total_team_2_rating == pytest.approx(total_team_1_rating, rel=0.1)
+
+
+def test_apply_team_bonus():
+    """
+    Tests that the smaller team gets a 20% bonus correctly applied.
+    """
+    team_1 = Team(
+        players=[
+            Player(
+                name=f"Player {i}",
+                attributes=Attributes.from_values(
+                    {
+                        "shooting": 70,
+                        "dribbling": 70,
+                        "passing": 70,
+                        "tackling": 70,
+                        "fitness": 70,
+                        "goalkeeping": 70,
+                    }
+                ),
+                form=5,
+            )
+            for i in range(5)
+        ]
     )
 
-    assert len(team_1) == 6
-    assert len(team_2) == 5
+    team_2 = Team(
+        players=[
+            Player(
+                name=f"Player {i}",
+                attributes=Attributes.from_values(
+                    {
+                        "shooting": 70,
+                        "dribbling": 70,
+                        "passing": 70,
+                        "tackling": 70,
+                        "fitness": 70,
+                        "goalkeeping": 70,
+                    }
+                ),
+                form=5,
+            )
+            for i in range(4)
+        ]
+    )
 
-    total_team_1_rating = sum(player.get_overall_rating() for player in team_1)
-    total_team_2_rating = sum(player.get_overall_rating() for player in team_2)
+    apply_team_bonus(team_1, team_2)
 
-    total_team_1_rating_with_bonus = total_team_1_rating * 1.20
-    assert total_team_1_rating_with_bonus >= total_team_2_rating
+    total_team_2_rating_before = sum(
+        p.get_overall_rating() for p in team_2.players
+    )
+    total_team_2_rating_after = team_2.get_overall_rating()
+
+    assert total_team_2_rating_after == pytest.approx(
+        total_team_2_rating_before * 1.2, rel=1e-2
+    )
 
 
-def test_invalid_team_size_error():
+def test_create_balanced_teams_with_identical_players():
     """
-    Test the `InvalidTeamSizeError` is raised when there aren't enough players
-    for the desired team sizes.
-
-    :param players: A list of Player objects with fewer than the required total.
+    Tests balancing when all players have the same attributes.
     """
-    # Only 9 players, but trying to create a 5v5 game
-    test_players = [
+    identical_players = [
         Player(
             name=f"Player {i}",
             attributes=Attributes.from_values(
                 {
-                    "shooting": 70,
-                    "dribbling": 70,
-                    "passing": 70,
-                    "tackling": 70,
-                    "fitness": 70,
-                    "goalkeeping": 70,
+                    "shooting": 50,
+                    "dribbling": 50,
+                    "passing": 50,
+                    "tackling": 50,
+                    "fitness": 50,
+                    "goalkeeping": 50,
                 }
             ),
             form=5,
         )
-        for i in range(9)
-    ]  # Only 9 players in total
+        for i in range(10)
+    ]
+
+    team_1, team_2 = create_balanced_teams(identical_players, 5, 5)
+
+    total_team_1_rating = team_1.get_overall_rating()
+    total_team_2_rating = team_2.get_overall_rating()
+
+    assert total_team_1_rating == pytest.approx(total_team_2_rating, rel=0.01)
+
+
+def test_invalid_team_size_error(players):
+    """
+    Tests that InvalidTeamSizeError is raised for incorrect team sizes.
+    """
+    with pytest.raises(InvalidTeamSizeError):
+        create_balanced_teams(
+            [], team_1_size=5, team_2_size=5
+        )  # Empty player list
 
     with pytest.raises(InvalidTeamSizeError):
-        create_balanced_teams(test_players, team_1_size=5, team_2_size=5)
+        create_balanced_teams(
+            players[:9], team_1_size=-5, team_2_size=4
+        )  # Negative team size

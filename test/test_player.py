@@ -48,7 +48,7 @@ def test_player_overall_rating(default_player):
         + player.attributes.goalkeeping.score
     )
 
-    expected_rating = (total_score / 6) * (1 + 0.1 * player.form)
+    expected_rating = (total_score / 6) * (1 + 0.05 * player.form)
 
     # Assert that the calculated rating is as expected (allowing for slight float precision errors)
     assert overall_rating == pytest.approx(expected_rating, rel=1e-2)
@@ -84,7 +84,7 @@ def test_player_with_custom_attributes():
         + player.attributes.fitness.score
         + player.attributes.goalkeeping.score
     )
-    expected_rating = (total_score / 6) * (1 + 0.1 * player.form)
+    expected_rating = (total_score / 6) * (1 + 0.05 * player.form)
     overall_rating = player.get_overall_rating()
 
     assert overall_rating == pytest.approx(expected_rating, rel=1e-2)
@@ -132,7 +132,7 @@ def test_player_with_negative_form():
         attr.score for attr in player.attributes.__dict__.values()
     )
     expected_rating = (total_score / 6) * (
-        1 + 0.1 * player.form
+        1 + 0.05 * player.form
     )  # Form should reduce rating
 
     overall_rating = player.get_overall_rating()
@@ -157,7 +157,7 @@ def test_player_with_edge_values():
     total_score = sum(
         attr.score for attr in player.attributes.__dict__.values()
     )
-    expected_rating = (total_score / 6) * (1 + 0.1 * player.form)
+    expected_rating = (total_score / 6) * (1 + 0.05 * player.form)
 
     overall_rating = player.get_overall_rating()
 

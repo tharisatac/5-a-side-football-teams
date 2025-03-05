@@ -1,7 +1,7 @@
 """
-This module defines the `Player` and `Attributes` classes for managing player 
+This module defines the Player and Attributes classes for managing player 
 info, including their attributes such as shooting, dribbling, passing, tackling, 
-fitness,and goalkeeping. Each attribute is stored as a raw value, and the 
+fitness, and goalkeeping. Each attribute is stored as a raw value, and the 
 overall rating of the player is calculated using TrueSkill, which dynamically 
 adjusts based on performance.
 
@@ -21,77 +21,75 @@ from dataclasses import dataclass
 
 import trueskill
 
+__all__ = [
+    "Shooting",
+    "Dribbling",
+    "Passing",
+    "Tackling",
+    "Fitness",
+    "Goalkeeping",
+    "Attributes",
+    "Player",
+]
+
 
 @dataclass
-class Shooting:
+class PlayerAttribute:
     """
-    Represents a player's shooting ability.
-
-    :param score:
-        The raw score representing the player's shooting ability out of 100.
+    A base class for player attributes that contains a score and provides access
+    to it.
     """
 
     score: float
 
+    def __post_init__(self):
+        if not isinstance(self.score, (int, float)):
+            raise ValueError(f"Invalid score: {self.score}. Must be numeric.")
 
-@dataclass
-class Dribbling:
-    """
-    Represents a player's dribbling ability.
+    def get_score(self) -> float:
+        """
+        Get the score of the attribute.
 
-    :param score:
-        The raw score representing the player's dribbling ability out of 100.
-    """
-
-    score: float
-
-
-@dataclass
-class Passing:
-    """
-    Represents a player's passing ability.
-
-    :param score:
-        The raw score representing the player's passing ability out of 100.
-    """
-
-    score: float
+        :return:
+            The score of the attribute.
+        """
+        return self.score
 
 
-@dataclass
-class Tackling:
-    """
-    Represents a player's tackling ability.
+class Shooting(PlayerAttribute):
+    """Represents a player's shooting ability."""
 
-    :param score:
-        The raw score representing the player's tackling ability out of 100.
-    """
-
-    score: float
+    pass
 
 
-@dataclass
-class Fitness:
-    """
-    Represents a player's fitness level.
+class Dribbling(PlayerAttribute):
+    """Represents a player's dribbling ability."""
 
-    :param score:
-        The raw score representing the player's fitness out of 100.
-    """
-
-    score: float
+    pass
 
 
-@dataclass
-class Goalkeeping:
-    """
-    Represents a player's goalkeeping ability.
+class Passing(PlayerAttribute):
+    """Represents a player's passing ability."""
 
-    :param score:
-        The raw score representing the player's goalkeeping ability out of 100.
-    """
+    pass
 
-    score: float
+
+class Tackling(PlayerAttribute):
+    """Represents a player's tackling ability."""
+
+    pass
+
+
+class Fitness(PlayerAttribute):
+    """Represents a player's fitness level."""
+
+    pass
+
+
+class Goalkeeping(PlayerAttribute):
+    """Represents a player's goalkeeping ability."""
+
+    pass
 
 
 @dataclass
@@ -145,12 +143,12 @@ class Attributes:
                 )
 
         return cls(
-            shooting=Shooting(score=values.get("shooting", 65)),
-            dribbling=Dribbling(score=values.get("dribbling", 65)),
-            passing=Passing(score=values.get("passing", 65)),
-            tackling=Tackling(score=values.get("tackling", 65)),
-            fitness=Fitness(score=values.get("fitness", 65)),
-            goalkeeping=Goalkeeping(score=values.get("goalkeeping", 65)),
+            shooting=Shooting(values.get("shooting", 65)),
+            dribbling=Dribbling(values.get("dribbling", 65)),
+            passing=Passing(values.get("passing", 65)),
+            tackling=Tackling(values.get("tackling", 65)),
+            fitness=Fitness(values.get("fitness", 65)),
+            goalkeeping=Goalkeeping(values.get("goalkeeping", 65)),
         )
 
 
@@ -167,6 +165,8 @@ class Player:
     :param form:
         A multiplier that adjusts the player's overall rating based on
         current form.
+        This ranges from 0 to 10, where the former is no form and 10 is super
+        hot fire form.
 
     Methods:
         - get_overall_rating():
@@ -189,21 +189,12 @@ class Player:
             form (e.g., if form is positive, it boosts the rating).
         """
         total_rating = sum(
-            getattr(self.attributes, attribute).score
-            for attribute in self.attributes.__dict__.keys()
+            getattr(self.attributes, attribute).get_score()
+            for attribute in vars(self.attributes)
         )
-        # Calculate TrueSkill rating based on form and attributes
+
+        # Normalize rating to a mean value
         true_skill_rating = trueskill.Rating(mu=total_rating / 6, sigma=8.333)
-        return true_skill_rating.mu * (1 + 0.1 * self.form)
 
-
-__all__ = [
-    "Shooting",
-    "Dribbling",
-    "Passing",
-    "Tackling",
-    "Fitness",
-    "Goalkeeping",
-    "Attributes",
-    "Player",
-]
+        # Adjust based on form
+        return true_skill_rating.mu * (1 + 0.05 * self.form)
