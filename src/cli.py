@@ -50,7 +50,7 @@ def get_player_rating(args):
 
 
 def list_players(args):
-    """Lists all players in the database."""
+    """Lists all players in the database with all attributes."""
     players = db.get_all_players()
 
     if not players:
@@ -61,7 +61,9 @@ def list_players(args):
     for player in players:
         print(
             f"- {player['name']} | Form: {player['form']} | "
-            f"Shooting: {player['shooting']} | Dribbling: {player['dribbling']}"
+            f"Shooting: {player['shooting']} | Dribbling: {player['dribbling']} | "
+            f"Passing: {player['passing']} | Tackling: {player['tackling']} | "
+            f"Fitness: {player['fitness']} | Goalkeeping: {player['goalkeeping']}"
         )
 
 
