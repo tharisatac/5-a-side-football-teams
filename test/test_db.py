@@ -146,19 +146,38 @@ def test_record_match_result(db, sample_players):
     for player in sample_players:
         db.add_player(player)
 
+    # Create teams and get their actual allocations
     db.create_teams(["Player 1", "Player 2", "Player 3", "Player 4"])
-    db.record_match_result("team1")
+    teams = db.get_last_teams()  # Get actual teams from DB
 
-    # Ensure player forms updated
-    db.cursor.execute("SELECT form FROM players WHERE name = ?", ("Player 1",))
-    new_form = db.cursor.fetchone()[0]
+    # Ensure teams were assigned correctly
+    assert "team1" in teams and "team2" in teams
+    assert len(teams["team1"]) > 0 and len(teams["team2"]) > 0
 
-    assert new_form == 6  # Form should increase by 1 for winners
+    # Select the winning team dynamically
+    winning_team = "team1"
+    losing_team = "team2"
 
-    db.cursor.execute("SELECT form FROM players WHERE name = ?", ("Player 3",))
-    losing_form = db.cursor.fetchone()[0]
+    db.record_match_result(winning_team)
 
-    assert losing_form == 4  # Form should decrease by 1 for losers
+    # Check if forms are updated correctly
+    for player_name in teams[winning_team]:  # Winners should gain form
+        db.cursor.execute(
+            "SELECT form FROM players WHERE name = ?", (player_name,)
+        )
+        new_form = db.cursor.fetchone()[0]
+        assert (
+            new_form == 6
+        ), f"❌ {player_name} should have form 6 but got {new_form}"
+
+    for player_name in teams[losing_team]:  # Losers should lose form
+        db.cursor.execute(
+            "SELECT form FROM players WHERE name = ?", (player_name,)
+        )
+        new_form = db.cursor.fetchone()[0]
+        assert (
+            new_form == 4
+        ), f"❌ {player_name} should have form 4 but got {new_form}"
 
 
 def test_get_player_by_name(db, sample_players):

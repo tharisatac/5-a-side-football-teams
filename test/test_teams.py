@@ -1,110 +1,83 @@
+import random
+
 import pytest
 
 from src.player import Attributes, Player
-from src.teams import (
-    InvalidTeamSizeError,
-    Team,
-    apply_team_bonus,
-    create_balanced_teams,
-)
+from src.teams import InvalidTeamSizeError, Team, TeamCreator
 
 
 @pytest.fixture
-def players():
+def sample_players():
     """
-    Creates a list of test players with varying attributes.
+    Creates a list of sample players with varying attributes.
 
     :return:
         A list of Player objects.
     """
     player_data = [
         {
-            "shooting": 80,
-            "dribbling": 70,
-            "passing": 90,
-            "tackling": 60,
-            "fitness": 85,
-            "goalkeeping": 50,
+            "shooting": 8,
+            "dribbling": 7,
+            "passing": 9,
+            "tackling": 6,
+            "fitness": 8,
+            "goalkeeping": 5,
         },
         {
-            "shooting": 60,
-            "dribbling": 80,
-            "passing": 70,
-            "tackling": 65,
-            "fitness": 70,
-            "goalkeeping": 55,
+            "shooting": 6,
+            "dribbling": 8,
+            "passing": 7,
+            "tackling": 6,
+            "fitness": 7,
+            "goalkeeping": 5,
         },
         {
-            "shooting": 75,
-            "dribbling": 75,
-            "passing": 80,
-            "tackling": 70,
-            "fitness": 80,
-            "goalkeeping": 60,
+            "shooting": 7,
+            "dribbling": 7,
+            "passing": 8,
+            "tackling": 7,
+            "fitness": 8,
+            "goalkeeping": 6,
         },
         {
-            "shooting": 65,
-            "dribbling": 65,
-            "passing": 60,
-            "tackling": 75,
-            "fitness": 80,
-            "goalkeeping": 65,
+            "shooting": 6,
+            "dribbling": 6,
+            "passing": 6,
+            "tackling": 7,
+            "fitness": 8,
+            "goalkeeping": 6,
         },
         {
-            "shooting": 85,
-            "dribbling": 60,
-            "passing": 90,
-            "tackling": 50,
-            "fitness": 90,
-            "goalkeeping": 70,
+            "shooting": 9,
+            "dribbling": 6,
+            "passing": 9,
+            "tackling": 5,
+            "fitness": 9,
+            "goalkeeping": 7,
         },
         {
-            "shooting": 55,
-            "dribbling": 85,
-            "passing": 60,
-            "tackling": 80,
-            "fitness": 65,
-            "goalkeeping": 60,
+            "shooting": 5,
+            "dribbling": 9,
+            "passing": 6,
+            "tackling": 8,
+            "fitness": 6,
+            "goalkeeping": 6,
         },
         {
-            "shooting": 70,
-            "dribbling": 60,
-            "passing": 65,
-            "tackling": 55,
-            "fitness": 85,
-            "goalkeeping": 50,
+            "shooting": 7,
+            "dribbling": 6,
+            "passing": 6,
+            "tackling": 5,
+            "fitness": 8,
+            "goalkeeping": 5,
         },
         {
-            "shooting": 85,
-            "dribbling": 75,
-            "passing": 75,
-            "tackling": 60,
-            "fitness": 90,
-            "goalkeeping": 65,
-        },
-        {
-            "shooting": 90,
-            "dribbling": 85,
-            "passing": 80,
-            "tackling": 70,
-            "fitness": 80,
-            "goalkeeping": 75,
-        },
-        {
-            "shooting": 65,
-            "dribbling": 60,
-            "passing": 60,
-            "tackling": 50,
-            "fitness": 70,
-            "goalkeeping": 55,
-        },
-        {
-            "shooting": 65,
-            "dribbling": 60,
-            "passing": 60,
-            "tackling": 50,
-            "fitness": 70,
-            "goalkeeping": 55,
+            "shooting": 9,
+            "dribbling": 7,
+            "passing": 7,
+            "tackling": 6,
+            "fitness": 9,
+            "goalkeeping": 6,
         },
     ]
     return [
@@ -117,144 +90,240 @@ def players():
     ]
 
 
-def test_create_balanced_teams_with_bonus_5v4(players):
+def test_create_balanced_teams(sample_players):
     """
-    Tests teams for a 5v4 split with a 20% bonus applied to the smaller team.
-
-    :param players:
-        A list of Player objects.
+    Tests that TeamCreator correctly creates balanced teams.
     """
-    test_players = players[:9]
-    team_1, team_2 = create_balanced_teams(test_players, 5, 4)
+    team_creator = TeamCreator(sample_players, 4, 4)
+    team1, team2 = team_creator.create_balanced_teams()
 
-    assert len(team_1.players) == 5
-    assert len(team_2.players) == 4
-
-    apply_team_bonus(team_1, team_2)
-
-    total_team_1_rating = team_1.get_overall_rating()
-    total_team_2_rating = team_2.get_overall_rating()
-
-    assert total_team_2_rating == pytest.approx(total_team_1_rating, rel=0.1)
+    assert len(team1.players) == 4
+    assert len(team2.players) == 4
+    assert (
+        abs(team1.get_overall_rating() - team2.get_overall_rating()) < 2
+    ), "Teams should be balanced"
 
 
-def test_create_balanced_teams_with_bonus_6v5(players):
+def test_invalid_team_size_error(sample_players):
     """
-    Tests teams for a 6v5 split with a 20% bonus applied to the smaller team.
-
-    :param players:
-        A list of Player objects.
+    Tests that an error is raised when team sizes don't match available players.
     """
-    test_players = players[:11]
-    team_1, team_2 = create_balanced_teams(test_players, 6, 5)
-
-    assert len(team_1.players) == 6
-    assert len(team_2.players) == 5
-
-    apply_team_bonus(team_1, team_2)
-
-    total_team_1_rating = team_1.get_overall_rating()
-    total_team_2_rating = team_2.get_overall_rating()
-
-    assert total_team_2_rating == pytest.approx(total_team_1_rating, rel=0.1)
+    with pytest.raises(InvalidTeamSizeError):
+        TeamCreator(sample_players, 4, 3)  # Total does not match player count
 
 
 def test_apply_team_bonus():
     """
-    Tests that the smaller team gets a 20% bonus correctly applied.
+    Tests that a bonus is applied correctly to the larger team.
     """
-    team_1 = Team(
-        players=[
-            Player(
-                name=f"Player {i}",
-                attributes=Attributes.from_values(
-                    {
-                        "shooting": 70,
-                        "dribbling": 70,
-                        "passing": 70,
-                        "tackling": 70,
-                        "fitness": 70,
-                        "goalkeeping": 70,
-                    }
-                ),
-                form=5,
-            )
-            for i in range(5)
-        ]
-    )
-
-    team_2 = Team(
-        players=[
-            Player(
-                name=f"Player {i}",
-                attributes=Attributes.from_values(
-                    {
-                        "shooting": 70,
-                        "dribbling": 70,
-                        "passing": 70,
-                        "tackling": 70,
-                        "fitness": 70,
-                        "goalkeeping": 70,
-                    }
-                ),
-                form=5,
-            )
-            for i in range(4)
-        ]
-    )
-
-    apply_team_bonus(team_1, team_2)
-
-    total_team_2_rating_before = sum(
-        p.get_overall_rating() for p in team_2.players
-    )
-    total_team_2_rating_after = team_2.get_overall_rating()
-
-    assert total_team_2_rating_after == pytest.approx(
-        total_team_2_rating_before * 1.2, rel=1e-2
-    )
-
-
-def test_create_balanced_teams_with_identical_players():
-    """
-    Tests balancing when all players have the same attributes.
-    """
-    identical_players = [
+    sample_players = [
         Player(
-            name=f"Player {i}",
+            name=f"Player {i+1}",
             attributes=Attributes.from_values(
                 {
-                    "shooting": 50,
-                    "dribbling": 50,
-                    "passing": 50,
-                    "tackling": 50,
-                    "fitness": 50,
-                    "goalkeeping": 50,
+                    "shooting": 6,
+                    "dribbling": 6,
+                    "passing": 6,
+                    "tackling": 6,
+                    "fitness": 6,
+                    "goalkeeping": 6,
                 }
             ),
             form=5,
         )
-        for i in range(10)
+        for i in range(7)
     ]
 
-    team_1, team_2 = create_balanced_teams(identical_players, 5, 5)
+    team_creator = TeamCreator(sample_players, 4, 3)  # Unequal team sizes
+    team1, team2 = team_creator.create_balanced_teams()
 
-    total_team_1_rating = team_1.get_overall_rating()
-    total_team_2_rating = team_2.get_overall_rating()
+    if len(team1.players) > len(team2.players):
+        assert team1.bonus > 1.0
+    elif len(team2.players) > len(team1.players):
+        assert team2.bonus > 1.0
 
-    assert total_team_1_rating == pytest.approx(total_team_2_rating, rel=0.01)
 
-
-def test_invalid_team_size_error(players):
+def test_adjust_teams_for_fairness():
     """
-    Tests that InvalidTeamSizeError is raised for incorrect team sizes.
+    Tests that teams adjust correctly for fairness by swapping players.
     """
-    with pytest.raises(InvalidTeamSizeError):
-        create_balanced_teams(
-            [], team_1_size=5, team_2_size=5
-        )  # Empty player list
 
-    with pytest.raises(InvalidTeamSizeError):
-        create_balanced_teams(
-            players[:9], team_1_size=-5, team_2_size=4
-        )  # Negative team size
+    # Create an extreme imbalance: all strong players in team1, all weak in
+    # team2
+    strong_players = [
+        Player(
+            name=f"Strong {i}",
+            attributes=Attributes.from_values(
+                {
+                    "shooting": 10,
+                    "dribbling": 10,
+                    "passing": 10,
+                    "tackling": 10,
+                    "fitness": 10,
+                    "goalkeeping": 10,
+                }
+            ),
+            form=5,
+        )
+        for i in range(4)
+    ]
+
+    weak_players = [
+        Player(
+            name=f"Weak {i}",
+            attributes=Attributes.from_values(
+                {
+                    "shooting": 1,
+                    "dribbling": 1,
+                    "passing": 1,
+                    "tackling": 1,
+                    "fitness": 1,
+                    "goalkeeping": 1,
+                }
+            ),
+            form=5,
+        )
+        for i in range(4)
+    ]
+
+    # Check initial imbalance
+    team_creator = TeamCreator(strong_players + weak_players, 4, 4)
+    team_creator.team_1.players = (
+        strong_players  # Force team 1 to be all strong
+    )
+    team_creator.team_2.players = weak_players  # Force team 2 to be all weak
+
+    assert (
+        team_creator.team_1.get_overall_rating()
+        > team_creator.team_2.get_overall_rating() + 30
+    ), "Initial teams should be highly imbalanced"
+
+    # Run the fairness adjustment
+    team_creator._adjust_teams_for_fairness()
+    balanced_team1, balanced_team2 = team_creator.team_1, team_creator.team_2
+
+    # Ensure that the new teams are more balanced
+    new_diff = abs(
+        balanced_team1.get_overall_rating()
+        - balanced_team2.get_overall_rating()
+    )
+
+    print(f"⚖️ Adjusted balance diff: {new_diff}")
+
+    assert (
+        new_diff < 5
+    ), "Teams should be significantly more balanced after adjustment"
+
+
+def test_adjust_teams_for_fairness_is_deterministic(sample_players):
+    """
+    Ensures that adjusting fairness always results in the same optimal balance,
+    even if players are swapped before recalculating.
+    """
+    # Create the initial best-balanced teams
+    team_creator = TeamCreator(sample_players, 4, 4)
+    team1, team2 = team_creator.create_balanced_teams()
+
+    initial_balance_diff = abs(
+        team1.get_overall_rating() - team2.get_overall_rating()
+    )
+
+    # Introduce a **random swap** to unbalance the teams
+    random.shuffle(sample_players)
+
+    # Recalculate the teams after introducing imbalance
+    new_team_creator = TeamCreator(sample_players, 4, 4)
+    new_team1, new_team2 = new_team_creator.create_balanced_teams()
+
+    final_balance_diff = abs(
+        new_team1.get_overall_rating() - new_team2.get_overall_rating()
+    )
+
+    # Ensure the balance difference is **the same** after re-balancing
+    assert (
+        initial_balance_diff == final_balance_diff
+    ), "Final balance should be the same regardless of starting swaps"
+
+    # Ensure **the same players** exist across both teams, ignoring swaps
+    initial_players = {p.name for p in sample_players}
+    final_players = {p.name for p in new_team1.players}.union(
+        {p.name for p in new_team2.players}
+    )
+
+    assert initial_players == final_players, (
+        "All players should still be in the teams after adjustment, even if "
+        "swapped"
+    )
+
+
+def test_create_minimum_teams():
+    """
+    Tests creating the smallest possible teams (1v1).
+    """
+    min_players = [
+        Player(
+            name="Player 1",
+            attributes=Attributes.from_values(
+                {
+                    "shooting": 5,
+                    "dribbling": 5,
+                    "passing": 5,
+                    "tackling": 5,
+                    "fitness": 5,
+                    "goalkeeping": 5,
+                }
+            ),
+            form=5,
+        ),
+        Player(
+            name="Player 2",
+            attributes=Attributes.from_values(
+                {
+                    "shooting": 6,
+                    "dribbling": 6,
+                    "passing": 6,
+                    "tackling": 6,
+                    "fitness": 6,
+                    "goalkeeping": 6,
+                }
+            ),
+            form=5,
+        ),
+    ]
+
+    team_creator = TeamCreator(min_players, 1, 1)
+    team1, team2 = team_creator.create_balanced_teams()
+
+    assert len(team1.players) == 1
+    assert len(team2.players) == 1
+
+
+def test_create_unbalanced_teams():
+    """
+    Tests that unbalanced teams (3v2) still apply the proper bonus.
+    """
+    players = [
+        Player(
+            name=f"Player {i}",
+            attributes=Attributes.from_values(
+                {
+                    "shooting": i + 1,
+                    "dribbling": i + 1,
+                    "passing": i + 1,
+                    "tackling": i + 1,
+                    "fitness": i + 1,
+                    "goalkeeping": i + 1,
+                }
+            ),
+            form=5,
+        )
+        for i in range(5)
+    ]
+
+    team_creator = TeamCreator(players, 3, 2)
+    team1, team2 = team_creator.create_balanced_teams()
+
+    if len(team1.players) > len(team2.players):
+        assert team1.bonus > 1.0, "Bonus should be applied to larger team"
+    elif len(team2.players) > len(team1.players):
+        assert team2.bonus > 1.0, "Bonus should be applied to larger team"

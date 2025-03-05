@@ -13,7 +13,7 @@ import sqlite3
 from typing import Dict, List, Optional, Tuple
 
 from .player import Attributes, Player
-from .teams import Team, create_balanced_teams
+from .teams import InvalidTeamSizeError, Team, TeamCreator
 
 
 class DB:
@@ -215,7 +215,7 @@ class DB:
         self, player_names: List[str]
     ) -> Optional[Tuple[Team, Team]]:
         """
-        Creates balanced teams and stores them in the database.
+        Creates balanced teams using `TeamCreator` and stores them in the database.
 
         :param player_names:
             List of player names.
@@ -227,16 +227,22 @@ class DB:
             p for p in players if p
         ]  # Ensure only valid players
 
-        team1, team2 = create_balanced_teams(
+        # Ensure we have enough players to form teams
+        if len(formatted_players) < 2:
+            print("❌ Not enough players to create teams.")
+            return None
+
+        team_creator = TeamCreator(
             formatted_players,
             len(formatted_players) // 2,
             len(formatted_players) - len(formatted_players) // 2,
         )
+        team1, team2 = team_creator.create_balanced_teams()
 
         # Remove previous teams
         self.cursor.execute("DELETE FROM last_teams")
 
-        #  Store new teams
+        # Store new teams
         for player in team1.players:
             self.cursor.execute(
                 "INSERT INTO last_teams (player_name, team) VALUES (?, ?)",
@@ -290,7 +296,7 @@ class DB:
                 )
                 current_form = self.cursor.fetchone()[0]
 
-                # ✅ Increase form for winners, decrease for losers
+                # Increase form for winners, decrease for losers
                 new_form = (
                     current_form + 1
                     if team_name == winning_team

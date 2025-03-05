@@ -1,14 +1,15 @@
 """
-This module defines the `Team` class and functions for creating balanced teams
-from a list of players. Teams are balanced based on overall player ratings,
-and if one team is smaller, a boost is applied.
+This module defines the `Team` class and `TeamCreator` for creating balanced 
+teams efficiently. Teams are balanced based on overall player ratings, and if 
+one team is smaller, a boost is applied to the larger team.
 """
 
-from typing import List, Tuple
+import heapq
+from typing import List, Optional, Tuple
 
 from .player import Player
 
-SMALL_TEAM_BOOST = 1.2
+LARGE_TEAM_BOOST = 1.2
 
 
 class Team:
@@ -30,7 +31,7 @@ class Team:
             A multiplier applied to the team’s rating (default: 1.0).
         """
         self.players = players
-        self.bonus = bonus  # Default bonus is 1.0 (no effect)
+        self.bonus = bonus
 
     def get_overall_rating(self) -> float:
         """
@@ -44,106 +45,150 @@ class Team:
         )
         return total_rating * self.bonus
 
-    def get_attribute_rating(self, attribute: str) -> float:
-        """
-        Calculates the team's average rating for a specific attribute.
 
-        :param attribute:
-            The name of the attribute (e.g., "shooting", "passing").
+class TeamCreator:
+    """
+    Handles the creation and balancing of teams, maintaining a heap to store
+    the best swaps dynamically.
+    """
+
+    def __init__(
+        self, players: List[Player], team_1_size: int, team_2_size: int
+    ):
+        """
+        Initializes the TeamCreator with player data and team sizes.
+
+        :param players:
+            List of Player objects.
+        :param team_1_size:
+            The number of players for Team 1.
+        :param team_2_size:
+            The number of players for Team 2.
+        """
+        if len(players) != team_1_size + team_2_size:
+            raise InvalidTeamSizeError(team_1_size, team_2_size, len(players))
+
+        self.players = players
+        self.team_1_size = team_1_size
+        self.team_2_size = team_2_size
+        self.swap_heap: List[
+            Tuple[float, int, int]
+        ] = []  # Min-heap for storing optimal swaps
+
+        # Create initial teams
+        self.team_1, self.team_2 = self._distribute_players()
+        self._apply_team_bonus()
+        self._precompute_player_differences()
+
+    def _distribute_players(self) -> Tuple[Team, Team]:
+        """
+        Distributes players into two teams using a zigzag method.
+        """
+        sorted_players = sorted(
+            self.players, key=lambda x: x.get_overall_rating(), reverse=True
+        )
+        team_1_players: List[Player] = []
+        team_2_players: List[Player] = []
+
+        for i, player in enumerate(sorted_players):
+            if len(team_1_players) < self.team_1_size and (
+                i % 2 == 0 or len(team_2_players) >= self.team_2_size
+            ):
+                team_1_players.append(player)
+            elif len(team_2_players) < self.team_2_size:
+                team_2_players.append(player)
+
+        return Team(team_1_players), Team(team_2_players)
+
+    def _apply_team_bonus(self) -> None:
+        """
+        Applies a rating bonus to the larger team if team sizes are uneven.
+        """
+        if len(self.team_1.players) > len(self.team_2.players):
+            self.team_1.bonus = LARGE_TEAM_BOOST
+        elif len(self.team_2.players) > len(self.team_1.players):
+            self.team_2.bonus = LARGE_TEAM_BOOST
+
+    def _precompute_player_differences(self) -> None:
+        """
+        Precomputes and stores the rating differences between every pair of
+        players.
+        """
+        self.swap_heap = []
+        for i in range(len(self.players)):
+            for j in range(i + 1, len(self.players)):
+                diff = abs(
+                    self.players[i].get_overall_rating()
+                    - self.players[j].get_overall_rating()
+                )
+                heapq.heappush(self.swap_heap, (diff, i, j))
+
+    def _find_best_swap(self) -> Tuple[Optional[int], Optional[int]]:
+        """
+        Finds the best swap using the precomputed heap.
+        """
+        while self.swap_heap:
+            _, idx1, idx2 = heapq.heappop(self.swap_heap)
+            return idx1, idx2
+        return None, None
+
+    def _swap_players(
+        self, team1: Team, team2: Team, player1: Player, player2: Player
+    ) -> None:
+        """
+        Swaps two players between teams.
+        """
+        team1.players.remove(player1)
+        team2.players.append(player1)
+        team2.players.remove(player2)
+        team1.players.append(player2)
+
+    def _can_improve_balance(self) -> bool:
+        """
+        Determines if further swaps will improve balance.
+
         :return:
-            The average attribute rating, adjusted by the bonus.
+            True if balance can be improved further, False otherwise.
         """
-        total = sum(
-            getattr(player.attributes, attribute).score
-            for player in self.players
+        if not self.swap_heap:
+            return False
+
+        # Get the best possible next swap
+        next_diff, _, _ = self.swap_heap[0]
+        return next_diff < abs(
+            self.team_1.get_overall_rating() - self.team_2.get_overall_rating()
         )
-        return (total / len(self.players)) * self.bonus if self.players else 0
 
+    def _adjust_teams_for_fairness(self) -> None:
+        """
+        Adjusts teams iteratively using **heap-based swaps** to minimize
+        imbalance.
 
-def distribute_players(
-    players: List[Player], team_1_size: int, team_2_size: int
-) -> Tuple[List[Player], List[Player]]:
-    """
-    Distributes players into two teams in a zigzag (draft-pick) manner.
+        Uses a heap to find and apply the best swap dynamically.
+        """
+        while self.swap_heap:
+            idx1, idx2 = self._find_best_swap()
+            if idx1 is None or idx2 is None:
+                break  # No valid swaps left
 
-    :param players:
-        List of Player objects sorted by overall rating.
-    :param team_1_size:
-        Desired number of players in Team 1.
-    :param team_2_size:
-        Desired number of players in Team 2.
-    :return:
-        A tuple containing two lists: Team 1 players, Team 2 players.
-    """
-    team_1: List[Player] = []
-    team_2: List[Player] = []
+            swap1, swap2 = self.players[idx1], self.players[idx2]
 
-    for i, player in enumerate(players):
-        if len(team_1) < team_1_size and (
-            i % 2 == 0 or len(team_2) >= team_2_size
-        ):
-            team_1.append(player)
-        elif len(team_2) < team_2_size:
-            team_2.append(player)
+            # Swap players between teams
+            if swap1 in self.team_1.players and swap2 in self.team_2.players:
+                self._swap_players(self.team_1, self.team_2, swap1, swap2)
+            elif swap1 in self.team_2.players and swap2 in self.team_1.players:
+                self._swap_players(self.team_2, self.team_1, swap1, swap2)
 
-    return team_1, team_2
+            # Stop if no swap can further improve balance
+            if not self._can_improve_balance():
+                break
 
-
-def apply_team_bonus(team_1: Team, team_2: Team) -> None:
-    """
-    Applies a 20% rating bonus to the smaller team if team sizes are uneven.
-
-    :param team_1:
-        The first team.
-    :param team_2:
-        The second team.
-    """
-    if len(team_1.players) > len(team_2.players):  # Team 1 is larger
-        team_2.bonus = (
-            SMALL_TEAM_BOOST  # Apply a 20% boost to the smaller team
-        )
-    elif len(team_2.players) > len(team_1.players):  # Team 2 is larger
-        team_1.bonus = SMALL_TEAM_BOOST
-
-
-def create_balanced_teams(
-    players: List[Player], team_1_size: int, team_2_size: int
-) -> Tuple[Team, Team]:
-    """
-    Creates two balanced teams based on player ratings.
-
-    :param players:
-        List of Player objects to be divided into two teams.
-    :param team_1_size:
-        The number of players for Team 1.
-    :param team_2_size:
-        The number of players for Team 2.
-    :return:
-        A tuple containing two Team objects.
-    :raises InvalidTeamSizeError:
-        If the total number of players does not match team_1_size + team_2_size.
-    """
-    if len(players) != team_1_size + team_2_size:
-        raise InvalidTeamSizeError(team_1_size, team_2_size, len(players))
-
-    # Sort players by overall rating in descending order
-    sorted_players = sorted(
-        players, key=lambda x: x.get_overall_rating(), reverse=True
-    )
-
-    # Distribute players using the zig-zag method
-    team_1_players, team_2_players = distribute_players(
-        sorted_players, team_1_size, team_2_size
-    )
-
-    # Create team objects
-    team_1 = Team(team_1_players)
-    team_2 = Team(team_2_players)
-
-    # Apply bonus if team sizes are uneven
-    apply_team_bonus(team_1, team_2)
-
-    return team_1, team_2
+    def create_balanced_teams(self) -> Tuple[Team, Team]:
+        """
+        Returns the balanced teams after applying fairness adjustments.
+        """
+        self._adjust_teams_for_fairness()
+        return self.team_1, self.team_2
 
 
 class InvalidTeamSizeError(Exception):
