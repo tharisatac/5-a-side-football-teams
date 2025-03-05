@@ -224,10 +224,14 @@ class DB:
             Two teams (team1, team2) or None if teams could not be created.
         """
         players = [self.get_player_by_name(name) for name in player_names]
-        players = [p for p in players if p]  # Ensure only valid players
+        formatted_players = [
+            p for p in players if p
+        ]  # Ensure only valid players
 
         team1, team2 = create_balanced_teams(
-            players, len(players) // 2, len(players) - len(players) // 2
+            formatted_players,
+            len(formatted_players) // 2,
+            len(formatted_players) - len(formatted_players) // 2,
         )
 
         # Remove previous teams
@@ -259,7 +263,7 @@ class DB:
         self.cursor.execute("SELECT player_name, team FROM last_teams")
         rows = self.cursor.fetchall()
 
-        teams = {"team1": [], "team2": []}
+        teams: Dict[str, List[str]] = {"team1": [], "team2": []}
         for player_name, team in rows:
             teams[team].append(player_name)
 

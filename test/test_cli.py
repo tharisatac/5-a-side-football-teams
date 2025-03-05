@@ -1,21 +1,28 @@
+import os
 import subprocess
 
 import pytest
 
 CLI_COMMAND = "./run"
 
+TEST_DB_PATH = "test_football.db"
+
 
 @pytest.fixture(scope="function")
 def reset_database():
     """
-    Resets the database before each test to ensure a clean state.
+    Ensures a clean test database before running each CLI test.
     """
-    subprocess.run([CLI_COMMAND, "player", "list"])  # Ensure CLI works
+    if os.path.exists(TEST_DB_PATH):
+        os.remove(TEST_DB_PATH)  # ✅ Delete old test database
+
     subprocess.run(
-        [CLI_COMMAND, "player", "remove", "TestPlayer"],
-        stderr=subprocess.DEVNULL,
-    )  # Ignore errors
-    yield
+        [CLI_COMMAND, "database", "clear"], stderr=subprocess.DEVNULL
+    )  # Reset DB
+    yield  # Run the test
+
+    if os.path.exists(TEST_DB_PATH):
+        os.remove(TEST_DB_PATH)
 
 
 def test_add_player(reset_database):

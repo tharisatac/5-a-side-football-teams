@@ -5,18 +5,25 @@ import pytest
 from src.db import DB
 from src.player import Attributes, Player
 
+TEST_DB_PATH = "test_football.db"
+
 
 @pytest.fixture(scope="function")
 def db():
     """
-    Creates a temporary in-memory database for testing.
+    Creates a temporary test database for testing.
 
     :return:
-        A Database instance connected to an SQLite in-memory database.
+        A Database instance connected to "test_football.db".
     """
-    test_db = DB(db_name=":memory:")  # Use in-memory database for fast testing
-    yield test_db
-    test_db.close()
+    test_db = DB(db_name=TEST_DB_PATH)  # Use test DB
+    yield test_db  # Run the test
+
+    test_db.clear_database()
+    test_db.conn.close()
+
+    if os.path.exists(TEST_DB_PATH):
+        os.remove(TEST_DB_PATH)
 
 
 @pytest.fixture
