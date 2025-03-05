@@ -13,12 +13,14 @@ def reset_database():
     """
     Ensures a clean test database before running each CLI test.
     """
+    os.environ["FOOTBALL_DB"] = TEST_DB_PATH
+
     if os.path.exists(TEST_DB_PATH):
-        os.remove(TEST_DB_PATH)  # ✅ Delete old test database
+        os.remove(TEST_DB_PATH)
 
     subprocess.run(
         [CLI_COMMAND, "database", "clear"], stderr=subprocess.DEVNULL
-    )  # Reset DB
+    )
     yield  # Run the test
 
     if os.path.exists(TEST_DB_PATH):

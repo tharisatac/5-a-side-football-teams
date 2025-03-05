@@ -8,6 +8,7 @@ Tables:
     - match_players: Links players to matches.
 """
 
+import os
 import sqlite3
 from typing import Dict, List, Optional, Tuple
 
@@ -20,19 +21,17 @@ class DB:
     Manages database interactions for players, teams, and matches.
     """
 
-    def __init__(self, db_name: str = "football.db"):
+    def __init__(self, db_name=None):
         """
         Initializes the database connection and creates tables if needed.
 
         :param db_name:
             The name of the SQLite database file.
         """
-        self.conn = sqlite3.connect(db_name)
+        self.db_name = db_name or os.getenv("FOOTBALL_DB", "football.db")
+        self.conn = sqlite3.connect(self.db_name)
         self.cursor = self.conn.cursor()
         self.create_tables()
-
-        # Temporary storage for last created teams
-        self.last_teams: dict[str, list[Player]] = {"team1": [], "team2": []}
 
     def create_tables(self) -> None:
         """

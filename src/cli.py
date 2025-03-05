@@ -3,12 +3,12 @@ CLI module for managing players, teams, and match results.
 """
 
 import argparse
+import os
 
 from .db import DB
 from .player import Attributes, Player
 
-# Initialize the database
-db = DB()
+db = DB(db_name=os.getenv("FOOTBALL_DB", "football.db"))
 
 
 def add_player(args):
