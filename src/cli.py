@@ -56,15 +56,6 @@ def update_player(args):
     print(f"🔄 Updated {attribute} of '{args.name}' to {args.value}.")
 
 
-def get_player_rating(args):
-    """Displays a player's overall rating."""
-    player = db.get_player_by_name(args.name)
-    if player:
-        print(f"⭐ {args.name}'s Rating: {player.get_overall_rating()}")
-    else:
-        print(f"❌ Player '{args.name}' not found.")
-
-
 def list_players(args):
     """Lists all players in the database."""
     players = db.get_all_players()
@@ -112,12 +103,13 @@ def list_player_attributes(args):
         return
 
     print(f"\n📊 Attributes for {player.name}:")
-    print(f"  Shooting:     {player.attributes.shooting.get_score()}")
-    print(f"  Dribbling:    {player.attributes.dribbling.get_score()}")
-    print(f"  Passing:      {player.attributes.passing.get_score()}")
-    print(f"  Tackling:     {player.attributes.tackling.get_score()}")
-    print(f"  Fitness:      {player.attributes.fitness.get_score()}")
-    print(f"  Goalkeeping:  {player.attributes.goalkeeping.get_score()}")
+    print(f"  Shooting:        {player.attributes.shooting.get_score()}")
+    print(f"  Dribbling:       {player.attributes.dribbling.get_score()}")
+    print(f"  Passing:         {player.attributes.passing.get_score()}")
+    print(f"  Tackling:        {player.attributes.tackling.get_score()}")
+    print(f"  Fitness:         {player.attributes.fitness.get_score()}")
+    print(f"  Goalkeeping:     {player.attributes.goalkeeping.get_score()}")
+    print(f"⭐ Overall Rating: {player.get_overall_rating(round_num=True)}")
 
 
 # --------------------------
@@ -130,20 +122,20 @@ def create_teams(args):
         print("✅ Teams created successfully!")
         print("\n🏆 **Team 1:**")
         print(
-            f"  Rating: {round(team1.get_overall_rating(), 2)} Bonus: {team1.bonus}\n"
+            f"  Rating: {team1.get_overall_rating(round_num=True)} Bonus: {team1.bonus}\n"
         )
         for player in team1.players:
             print(
-                f"- {player.name} (Rating: {round(player.get_overall_rating(), 2)})"
+                f"- {player.name} (Rating: {player.get_overall_rating(round_num=True)})"
             )
 
         print("\n🔥 **Team 2:**")
         print(
-            f"  Rating: {round(team2.get_overall_rating(), 2)} Bonus: {team2.bonus}\n"
+            f"  Rating: {team2.get_overall_rating(round_num=True)} Bonus: {team2.bonus}\n"
         )
         for player in team2.players:
             print(
-                f"- {player.name} (Rating: {round(player.get_overall_rating(), 2)})"
+                f"- {player.name} (Rating: {player.get_overall_rating(round_num=True)})"
             )
     else:
         print("❌ Error: Could not create teams. Check player names.")
@@ -278,12 +270,6 @@ def setup_player_subparser(subparsers):
     )
     update_parser.add_argument("value", type=int, help="New value")
     update_parser.set_defaults(func=update_player)
-
-    rating_parser = player_subparsers.add_parser(
-        "rating", help="Get a player's rating"
-    )
-    rating_parser.add_argument("name", type=str, help="Player's name")
-    rating_parser.set_defaults(func=get_player_rating)
 
     attr_parser = player_subparsers.add_parser(
         "attributes", help="Show a player's attributes"

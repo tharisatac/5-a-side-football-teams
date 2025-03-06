@@ -144,16 +144,23 @@ class Player:
         )
         return weighted_sum
 
-    def get_overall_rating(self) -> float:
+    def get_overall_rating(self, round_num: bool = False) -> float:
         """
         Calculates the overall rating by applying a form multiplier to the base
         rating.
 
         The multiplier is 1 + 0.05 * (form - 5). That is, form 5 is neutral.
+
+        :param round:
+            Whether to round to 2 decimals. This should only be True if
+            outputting to the end user.
+
         """
         base_rating = self._get_base_rating()
         multiplier = 1 + 0.05 * (self.form - 5)
-        return base_rating * multiplier
+        if not round_num:
+            return base_rating * multiplier
+        return round(base_rating * multiplier, 2)
 
     def update_form(self, won: bool) -> None:
         """

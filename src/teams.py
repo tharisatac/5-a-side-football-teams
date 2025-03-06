@@ -32,9 +32,13 @@ class Team:
         self.players = players
         self.bonus = bonus
 
-    def get_overall_rating(self) -> float:
+    def get_overall_rating(self, round_num: bool = False) -> float:
         """
         Calculates the total adjusted team rating.
+
+        :param round:
+            Whether to round to 2 decimals. This should only be True if
+            outputting to the end user.
 
         :return:
             The total rating of the team, considering the bonus.
@@ -42,7 +46,9 @@ class Team:
         total_rating = sum(
             player.get_overall_rating() for player in self.players
         )
-        return total_rating * self.bonus
+        if not round_num:
+            return total_rating * self.bonus
+        return round(total_rating * self.bonus, 2)
 
 
 class TeamCreator:

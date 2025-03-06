@@ -133,12 +133,13 @@ def test_list_player_attributes(reset_database):
     )
 
     assert "📊 Attributes for" in result.stdout
-    assert "Shooting:     8" in result.stdout
-    assert "Dribbling:    9" in result.stdout
-    assert "Passing:      7" in result.stdout
-    assert "Tackling:     6" in result.stdout
-    assert "Fitness:      8" in result.stdout
-    assert "Goalkeeping:  5" in result.stdout
+    assert "Shooting:        8" in result.stdout
+    assert "Dribbling:       9" in result.stdout
+    assert "Passing:         7" in result.stdout
+    assert "Tackling:        6" in result.stdout
+    assert "Fitness:         8" in result.stdout
+    assert "Goalkeeping:     5" in result.stdout
+    assert (f"⭐ Overall Rating: 7.7") in result.stdout
 
 
 def test_remove_player(reset_database):
