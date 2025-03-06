@@ -8,9 +8,13 @@ import os
 from .db import DB
 from .player import Attributes, Player
 
+# Initialize the database connection.
 db = DB(db_name=os.getenv("FOOTBALL_DB", "football.db"))
 
 
+# --------------------------
+# Player Command Handlers
+# --------------------------
 def add_player(args):
     """Adds a new player to the database."""
     attributes = Attributes.from_values(
@@ -36,7 +40,6 @@ def remove_player(args):
 
 def update_player(args):
     """Updates a player's attribute."""
-
     attributes_map = {
         "s": "shooting",
         "d": "dribbling",
@@ -45,11 +48,7 @@ def update_player(args):
         "f": "fitness",
         "g": "goalkeeping",
     }
-
-    attribute = args.attribute
-    if args.attribute in attributes_map:
-        attribute = attributes_map[args.attribute]
-
+    attribute = attributes_map.get(args.attribute, args.attribute)
     db.update_player_attribute(args.name, attribute, args.value)
     print(f"🔄 Updated {attribute} of '{args.name}' to {args.value}.")
 
@@ -64,14 +63,12 @@ def get_player_rating(args):
 
 
 def list_players(args):
-    """Lists all players in the database with all attributes in a table format."""
+    """Lists all players in the database."""
     players = db.get_all_players()
-
     if not players:
         print("❌ No players found in the database.")
         return
 
-    # Define the column headers
     headers = [
         "Name",
         "Form",
@@ -82,16 +79,10 @@ def list_players(args):
         "Fitness",
         "Goalkeeping",
     ]
-
-    # Define a format string with fixed widths (adjust widths as needed)
     format_str = "{:<20} {:<10} {:<10} {:<10} {:<10} {:<10} {:<10} {:<10}"
-
     print("\n📋 **Players in Database:**")
-    # Print the header row
     print(format_str.format(*headers))
-    print("-" * 100)  # Optional separator line
-
-    # Print each player's data row
+    print("-" * 100)
     for player in players:
         print(
             format_str.format(
@@ -107,6 +98,9 @@ def list_players(args):
         )
 
 
+# --------------------------
+# Team Command Handlers
+# --------------------------
 def create_teams(args):
     """Creates balanced teams from given player names."""
     team1, team2 = db.create_teams(args.players)
@@ -114,22 +108,20 @@ def create_teams(args):
         print("✅ Teams created successfully!")
         print("\n🏆 **Team 1:**")
         print(
-            f"  Rating: {round(team1.get_overall_rating(),2)} "
-            f"Bonus: {team1.bonus}\n"
+            f"  Rating: {round(team1.get_overall_rating(), 2)} Bonus: {team1.bonus}\n"
         )
         for player in team1.players:
             print(
-                f"- {player.name} (Rating: {round(player.get_overall_rating(),2)})"
+                f"- {player.name} (Rating: {round(player.get_overall_rating(), 2)})"
             )
 
         print("\n🔥 **Team 2:**")
         print(
-            f"  Rating: {round(team2.get_overall_rating(),2)} "
-            f"Bonus: {team2.bonus}\n"
+            f"  Rating: {round(team2.get_overall_rating(), 2)} Bonus: {team2.bonus}\n"
         )
         for player in team2.players:
             print(
-                f"- {player.name} (Rating: {round(player.get_overall_rating(),2)})"
+                f"- {player.name} (Rating: {round(player.get_overall_rating(), 2)})"
             )
     else:
         print("❌ Error: Could not create teams. Check player names.")
@@ -145,21 +137,19 @@ def get_team_attributes(args):
     """Displays the attribute ratings of the last generated team."""
     teams = db.get_last_teams()
     team_key = args.team
-
     if not teams[team_key]:
         print(f"❌ No previous team '{team_key}' found.")
         return
 
     print(f"\n📊 **{team_key.capitalize()} Attributes:**")
-    attributes = [
+    for attr in [
         "shooting",
         "dribbling",
         "passing",
         "tackling",
         "fitness",
         "goalkeeping",
-    ]
-    for attr in attributes:
+    ]:
         avg_rating = sum(
             getattr(player.attributes, attr).score
             for player in teams[team_key].players
@@ -169,39 +159,35 @@ def get_team_attributes(args):
 
 def get_team_rating(args):
     """Displays the overall team rating of the last generated team."""
-    team_key = "team1" if args.team == "team1" else "team2"
     teams = db.get_last_teams()
-    team = teams[team_key]
-
+    team = teams[args.team]
     if not team:
-        print(f"❌ No previous team '{team_key}' found.")
+        print(f"❌ No previous team '{args.team}' found.")
         return
-
     overall_rating = team.get_overall_rating()
     print(
-        f"\n⭐ **{team_key.capitalize()} Overall Rating:** "
-        f"{overall_rating:.2f}"
+        f"\n⭐ **{args.team.capitalize()} Overall Rating:** {overall_rating:.2f}"
     )
 
 
+# --------------------------
+# Database Command Handlers
+# --------------------------
 def clear_database(args):
     """Clears all players, matches, and team history from the database."""
     db.clear_database()
     print("🗑️ All data has been removed from the database.")
 
 
-def main():
-    """CLI entry point."""
-    parser = argparse.ArgumentParser(description="Football Team Manager CLI")
-    subparsers = parser.add_subparsers(dest="command", required=True)
-
-    # Player Subcommands
+# --------------------------
+# Subparser Setup Functions
+# --------------------------
+def setup_player_subparser(subparsers):
     player_parser = subparsers.add_parser("player", help="Manage players")
     player_subparsers = player_parser.add_subparsers(
         dest="action", required=True
     )
 
-    # Add player
     add_parser = player_subparsers.add_parser("add", help="Add a new player")
     add_parser.add_argument("name", type=str, help="Player's name")
     add_parser.add_argument(
@@ -240,14 +226,12 @@ def main():
     )
     add_parser.set_defaults(func=add_player)
 
-    # Remove player
     remove_parser = player_subparsers.add_parser(
         "remove", help="Remove a player"
     )
     remove_parser.add_argument("name", type=str, help="Player's name")
     remove_parser.set_defaults(func=remove_player)
 
-    # Update player
     update_parser = player_subparsers.add_parser(
         "update", help="Update a player's skill"
     )
@@ -258,22 +242,20 @@ def main():
     update_parser.add_argument("value", type=int, help="New value")
     update_parser.set_defaults(func=update_player)
 
-    # Get player rating
     rating_parser = player_subparsers.add_parser(
         "rating", help="Get a player's rating"
     )
     rating_parser.add_argument("name", type=str, help="Player's name")
     rating_parser.set_defaults(func=get_player_rating)
 
-    # List players
     list_parser = player_subparsers.add_parser("list", help="List all players")
     list_parser.set_defaults(func=list_players)
 
-    # Team Subcommands
+
+def setup_team_subparser(subparsers):
     team_parser = subparsers.add_parser("teams", help="Manage teams & matches")
     team_subparsers = team_parser.add_subparsers(dest="action", required=True)
 
-    # Create teams
     create_parser = team_subparsers.add_parser(
         "create", help="Create balanced teams"
     )
@@ -282,7 +264,6 @@ def main():
     )
     create_parser.set_defaults(func=create_teams)
 
-    # Record match result
     result_parser = team_subparsers.add_parser(
         "result", help="Record match result"
     )
@@ -291,7 +272,6 @@ def main():
     )
     result_parser.set_defaults(func=record_match_result)
 
-    # Get team attributes
     attr_parser = team_subparsers.add_parser(
         "attributes", help="Get team attribute ratings"
     )
@@ -300,7 +280,6 @@ def main():
     )
     attr_parser.set_defaults(func=get_team_attributes)
 
-    # Get team rating
     rating_parser = team_subparsers.add_parser(
         "rating", help="Get overall team rating"
     )
@@ -309,7 +288,8 @@ def main():
     )
     rating_parser.set_defaults(func=get_team_rating)
 
-    # Clear the database
+
+def setup_database_subparser(subparsers):
     database_parser = subparsers.add_parser("database", help="Manage database")
     database_subparsers = database_parser.add_subparsers(
         dest="action", required=True
@@ -320,6 +300,21 @@ def main():
     )
     clear_parser.set_defaults(func=clear_database)
 
-    # Parse arguments & call respective function
+
+# --------------------------
+# Main CLI Entry Point
+# --------------------------
+def main():
+    parser = argparse.ArgumentParser(description="Football Team Manager CLI")
+    subparsers = parser.add_subparsers(dest="command", required=True)
+
+    setup_player_subparser(subparsers)
+    setup_team_subparser(subparsers)
+    setup_database_subparser(subparsers)
+
     args = parser.parse_args()
     args.func(args)
+
+
+if __name__ == "__main__":
+    main()
