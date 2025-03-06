@@ -4,12 +4,11 @@ teams efficiently. Teams are balanced based on overall player ratings, and if
 one team is smaller, a boost is applied to the larger team.
 """
 
-import heapq
-from typing import List, Optional, Tuple
+from typing import List, Tuple
 
 from .player import Player
 
-LARGE_TEAM_BOOST = 1.2
+LARGE_TEAM_BOOST = 1.01
 
 
 class Team:

@@ -76,12 +76,22 @@ def create_teams(args):
     if team1 and team2:
         print("✅ Teams created successfully!")
         print("\n🏆 **Team 1:**")
+        print(
+            f"  Rating: {round(team1.get_overall_rating(),2)} Bonus: {team1.bonus}\n"
+        )
         for player in team1.players:
-            print(f"- {player.name} (Rating: {player.get_overall_rating()})")
+            print(
+                f"- {player.name} (Rating: {round(player.get_overall_rating(),2)})"
+            )
 
         print("\n🔥 **Team 2:**")
+        print(
+            f"  Rating: {round(team2.get_overall_rating(),2)} Bonus: {team2.bonus}\n"
+        )
         for player in team2.players:
-            print(f"- {player.name} (Rating: {player.get_overall_rating()})")
+            print(
+                f"- {player.name} (Rating: {round(player.get_overall_rating(),2)})"
+            )
     else:
         print("❌ Error: Could not create teams. Check player names.")
 
