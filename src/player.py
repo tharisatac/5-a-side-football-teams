@@ -43,6 +43,10 @@ class PlayerAttribute:
     def __post_init__(self):
         if not isinstance(self.score, (int, float)):
             raise ValueError(f"Invalid score: {self.score}. Must be numeric.")
+        if not (1 <= self.score <= 10):
+            raise ValueError(
+                f"Invalid score: {self.score}. Must be between 1 and 10."
+            )
 
     def get_score(self) -> float:
         return self.score

@@ -42,17 +42,17 @@ def test_add_player(reset_database):
             "add",
             "TestPlayer",
             "--shooting",
-            "80",
+            "8",
             "--dribbling",
-            "70",
+            "7",
             "--passing",
-            "85",
+            "9",
             "--tackling",
-            "60",
+            "6",
             "--fitness",
-            "90",
+            "9",
             "--goalkeeping",
-            "50",
+            "5",
         ],
         capture_output=True,
         text=True,
@@ -151,17 +151,17 @@ def test_update_player(reset_database):
             "add",
             "TestPlayer",
             "--shooting",
-            "80",
+            "8",
             "--dribbling",
-            "70",
+            "7",
             "--passing",
-            "85",
+            "9",
             "--tackling",
-            "60",
+            "6",
             "--fitness",
-            "90",
+            "9",
             "--goalkeeping",
-            "50",
+            "5",
         ]
     )
 
@@ -185,17 +185,17 @@ def test_get_player_rating(reset_database):
             "add",
             "TestPlayer",
             "--shooting",
-            "80",
+            "8",
             "--dribbling",
-            "70",
+            "7",
             "--passing",
-            "85",
+            "9",
             "--tackling",
-            "60",
+            "6",
             "--fitness",
-            "90",
+            "9",
             "--goalkeeping",
-            "50",
+            "5",
         ]
     )
 
@@ -221,17 +221,17 @@ def test_create_teams(reset_database):
                 "add",
                 player,
                 "--shooting",
-                "70",
+                "7",
                 "--dribbling",
-                "70",
+                "7",
                 "--passing",
-                "70",
+                "7",
                 "--tackling",
-                "70",
+                "7",
                 "--fitness",
-                "70",
+                "7",
                 "--goalkeeping",
-                "70",
+                "7",
             ]
         )
 
@@ -259,17 +259,17 @@ def test_get_team_attributes(reset_database):
                 "add",
                 player,
                 "--shooting",
-                "70",
+                "7",
                 "--dribbling",
-                "70",
+                "7",
                 "--passing",
-                "70",
+                "7",
                 "--tackling",
-                "70",
+                "7",
                 "--fitness",
-                "70",
+                "7",
                 "--goalkeeping",
-                "70",
+                "7",
             ]
         )
 
@@ -283,7 +283,7 @@ def test_get_team_attributes(reset_database):
     )
 
     assert "📊 **Team1 Attributes:**" in result.stdout
-    assert "Shooting: 70.00" in result.stdout
+    assert "Shooting: 7.00" in result.stdout
 
 
 def test_record_match_result(reset_database):
@@ -299,17 +299,17 @@ def test_record_match_result(reset_database):
                 "add",
                 player,
                 "--shooting",
-                "70",
+                "7",
                 "--dribbling",
-                "70",
+                "7",
                 "--passing",
-                "70",
+                "7",
                 "--tackling",
-                "70",
+                "7",
                 "--fitness",
-                "70",
+                "7",
                 "--goalkeeping",
-                "70",
+                "7",
             ]
         )
 
@@ -322,11 +322,6 @@ def test_record_match_result(reset_database):
     )
 
     assert "✅ Match recorded: team1 won!" in result.stdout
-
-
-# --------------------------
-# CSV Import/Export Tests
-# --------------------------
 
 
 # A simple Args class to simulate CLI arguments.
