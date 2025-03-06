@@ -112,6 +112,76 @@ def list_player_attributes(args):
     print(f"⭐ Overall Rating: {player.get_overall_rating(round_num=True)}")
 
 
+def rank_players(args):
+    """
+    Ranks players based on overall rating or a specific attribute.
+
+    Usage:
+      - If an attribute (e.g. "shooting", "dribbling", etc.) is provided,
+        players are ranked based on that attribute.
+      - If no attribute is provided, rankings for overall rating and all
+        individual attributes are displayed.
+
+    Valid attribute values are: overall, shooting, dribbling, passing, tackling,
+    fitness, goalkeeping.
+    """
+    # Retrieve full player instances from the database.
+    players = [db.get_player_by_name(p["name"]) for p in db.get_all_players()]
+    if not players:
+        print("❌ No players found in the database.")
+        return
+
+    def print_ranking(title, key_func):
+        sorted_players = sorted(players, key=key_func, reverse=True)
+        print(f"\n🏅 Ranking by {title}:")
+        for i, player in enumerate(sorted_players, 1):
+            if title.lower() == "overall rating":
+                score = player.get_overall_rating()
+            else:
+                # Dynamically retrieve the attribute score.
+                attr_obj = getattr(player.attributes, title.lower())
+                score = attr_obj.get_score()
+            print(f"{i}. {player.name} - {title}: {score:.2f}")
+
+    # If no attribute is provided, default to showing all rankings.
+    if not args.attribute:
+        print_ranking("Overall Rating", lambda p: p.get_overall_rating())
+        for attr in [
+            "shooting",
+            "dribbling",
+            "passing",
+            "tackling",
+            "fitness",
+            "goalkeeping",
+        ]:
+            print_ranking(
+                attr.capitalize(),
+                lambda p, a=attr: getattr(p.attributes, a).get_score(),
+            )
+    else:
+        attr = args.attribute.lower()
+        if attr == "overall":
+            print_ranking("Overall Rating", lambda p: p.get_overall_rating())
+        elif attr in [
+            "shooting",
+            "dribbling",
+            "passing",
+            "tackling",
+            "fitness",
+            "goalkeeping",
+        ]:
+            print_ranking(
+                attr.capitalize(),
+                lambda p: getattr(p.attributes, attr).get_score(),
+            )
+        else:
+            print(
+                f"❌ Invalid attribute '{args.attribute}'. Valid options are "
+                "overall, shooting, dribbling, passing, tackling, fitness, "
+                "goalkeeping."
+            )
+
+
 # --------------------------
 # Team Command Handlers
 # --------------------------
@@ -279,6 +349,20 @@ def setup_player_subparser(subparsers):
 
     list_parser = player_subparsers.add_parser("list", help="List all players")
     list_parser.set_defaults(func=list_players)
+
+    rank_parser = player_subparsers.add_parser(
+        "rank", help="Rank players by overall rating or attribute"
+    )
+    rank_parser.add_argument(
+        "attribute",
+        nargs="?",
+        help=(
+            "Attribute to rank by (overall, shooting, dribbling, passing, "
+            "tackling, fitness, goalkeeping). If omitted, all rankings will "
+            "be shown."
+        ),
+    )
+    rank_parser.set_defaults(func=rank_players)
 
 
 def setup_team_subparser(subparsers):

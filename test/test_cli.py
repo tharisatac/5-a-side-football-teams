@@ -215,38 +215,166 @@ def test_update_player(reset_database):
     assert "🔄 Updated shooting of 'TestPlayer' to 95." in result.stdout
 
 
-def test_get_player_rating(reset_database):
+def test_rank_players_all(reset_database):
     """
-    Tests retrieving a player's rating.
+    Test that 'player rank' with no arguments displays rankings for overall rating
+    and for each individual attribute.
+    """
+    # Add two sample players via the CLI.
+    subprocess.run(
+        [
+            CLI_COMMAND,
+            "player",
+            "add",
+            "Player1",
+            "--shooting",
+            "8",
+            "--dribbling",
+            "7",
+            "--passing",
+            "8",
+            "--tackling",
+            "6",
+            "--fitness",
+            "8",
+            "--goalkeeping",
+            "5",
+        ],
+        check=True,
+    )
+    subprocess.run(
+        [
+            CLI_COMMAND,
+            "player",
+            "add",
+            "Player2",
+            "--shooting",
+            "7",
+            "--dribbling",
+            "8",
+            "--passing",
+            "7",
+            "--tackling",
+            "7",
+            "--fitness",
+            "7",
+            "--goalkeeping",
+            "6",
+        ],
+        check=True,
+    )
+    # Run the rank command with no attribute (default to --all)
+    result = subprocess.run(
+        [CLI_COMMAND, "player", "rank"],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    # Check that the output includes rankings for overall rating and each attribute.
+    assert "Ranking by Overall Rating:" in result.stdout
+    for attribute in [
+        "Shooting",
+        "Dribbling",
+        "Passing",
+        "Tackling",
+        "Fitness",
+        "Goalkeeping",
+    ]:
+        assert f"Ranking by {attribute}:" in result.stdout
+
+
+def test_rank_specific(reset_database):
+    """
+    Test that 'player rank shooting' ranks players by the shooting attribute only.
     """
     subprocess.run(
         [
             CLI_COMMAND,
             "player",
             "add",
-            "TestPlayer",
+            "Player1",
             "--shooting",
             "8",
             "--dribbling",
             "7",
             "--passing",
-            "9",
+            "8",
             "--tackling",
             "6",
             "--fitness",
-            "9",
+            "8",
             "--goalkeeping",
             "5",
-        ]
+        ],
+        check=True,
     )
-
+    subprocess.run(
+        [
+            CLI_COMMAND,
+            "player",
+            "add",
+            "Player2",
+            "--shooting",
+            "7",
+            "--dribbling",
+            "8",
+            "--passing",
+            "7",
+            "--tackling",
+            "7",
+            "--fitness",
+            "7",
+            "--goalkeeping",
+            "6",
+        ],
+        check=True,
+    )
+    # Run the rank command for shooting specifically.
     result = subprocess.run(
-        [CLI_COMMAND, "player", "rating", "TestPlayer"],
+        [CLI_COMMAND, "player", "rank", "shooting"],
         capture_output=True,
         text=True,
+        check=True,
     )
+    # Check that only the shooting ranking is displayed.
+    assert "Ranking by Shooting:" in result.stdout
+    # Ensure that overall ranking is not printed.
+    assert "Ranking by Overall Rating:" not in result.stdout
 
-    assert "⭐ TestPlayer's Rating:" in result.stdout
+
+def test_rank_invalid_attribute(reset_database):
+    """
+    Test that 'player rank invalid_attr' outputs an error message.
+    """
+    subprocess.run(
+        [
+            CLI_COMMAND,
+            "player",
+            "add",
+            "Player1",
+            "--shooting",
+            "8",
+            "--dribbling",
+            "7",
+            "--passing",
+            "8",
+            "--tackling",
+            "6",
+            "--fitness",
+            "8",
+            "--goalkeeping",
+            "5",
+        ],
+        check=True,
+    )
+    result = subprocess.run(
+        [CLI_COMMAND, "player", "rank", "invalid_attr"],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    # Check that an error message is printed regarding the invalid attribute.
+    assert "Invalid attribute" in result.stdout
 
 
 def test_create_teams(reset_database):
