@@ -192,20 +192,24 @@ def create_teams(args):
         print("✅ Teams created successfully!")
         print("\n🏆 **Team 1:**")
         print(
-            f"  Rating: {team1.get_overall_rating(round_num=True)} Bonus: {team1.bonus}\n"
+            f"  Rating: {team1.get_overall_rating(round_num=True)} "
+            f"Bonus: {team1.bonus}\n"
         )
         for player in team1.players:
             print(
-                f"- {player.name} (Rating: {player.get_overall_rating(round_num=True)})"
+                f"- {player.name} "
+                f"(Rating: {player.get_overall_rating(round_num=True)})"
             )
 
         print("\n🔥 **Team 2:**")
         print(
-            f"  Rating: {team2.get_overall_rating(round_num=True)} Bonus: {team2.bonus}\n"
+            f"  Rating: {team2.get_overall_rating(round_num=True)} "
+            f"Bonus: {team2.bonus}\n"
         )
         for player in team2.players:
             print(
-                f"- {player.name} (Rating: {player.get_overall_rating(round_num=True)})"
+                f"- {player.name} (Rating: "
+                f"{player.get_overall_rating(round_num=True)})"
             )
     else:
         print("❌ Error: Could not create teams. Check player names.")
@@ -250,7 +254,8 @@ def get_team_rating(args):
         return
     overall_rating = team.get_overall_rating()
     print(
-        f"\n⭐ **{args.team.capitalize()} Overall Rating:** {overall_rating:.2f}"
+        f"\n⭐ **{args.team.capitalize()} Overall Rating:** "
+        f"{overall_rating:.2f}"
     )
 
 
@@ -282,6 +287,7 @@ def setup_player_subparser(subparsers):
         dest="action", required=True
     )
 
+    # "add" command
     add_parser = player_subparsers.add_parser("add", help="Add a new player")
     add_parser.add_argument("name", type=str, help="Player's name")
     add_parser.add_argument(
@@ -320,17 +326,46 @@ def setup_player_subparser(subparsers):
     )
     add_parser.set_defaults(func=add_player)
 
+    # "attributes" command
+    attr_parser = player_subparsers.add_parser(
+        "attributes", help="Show a player's attributes"
+    )
+    attr_parser.add_argument("name", type=str, help="Player's name")
+    attr_parser.set_defaults(func=list_player_attributes)
+
+    # "list" command
+    list_parser = player_subparsers.add_parser("list", help="List all players")
+    list_parser.set_defaults(func=list_players)
+
+    # "rank" command
+    rank_parser = player_subparsers.add_parser(
+        "rank", help="Rank players by overall rating or attribute"
+    )
+    rank_parser.add_argument(
+        "attribute",
+        nargs="?",
+        help=(
+            "Attribute to rank by (overall, shooting, dribbling, passing, "
+            "tackling, fitness, goalkeeping). If omitted, all rankings will be"
+            "shown."
+        ),
+    )
+    rank_parser.set_defaults(func=rank_players)
+
+    # "remove" command
     remove_parser = player_subparsers.add_parser(
         "remove", help="Remove a player"
     )
     remove_parser.add_argument("name", type=str, help="Player's name")
     remove_parser.set_defaults(func=remove_player)
 
+    # "reset_forms" command
     reset_parser = player_subparsers.add_parser(
         "reset_forms", help="Reset all player forms to default (5)"
     )
     reset_parser.set_defaults(func=lambda args: db.reset_player_forms())
 
+    # "update" command
     update_parser = player_subparsers.add_parser(
         "update", help="Update a player's skill"
     )
@@ -341,50 +376,12 @@ def setup_player_subparser(subparsers):
     update_parser.add_argument("value", type=int, help="New value")
     update_parser.set_defaults(func=update_player)
 
-    attr_parser = player_subparsers.add_parser(
-        "attributes", help="Show a player's attributes"
-    )
-    attr_parser.add_argument("name", type=str, help="Player's name")
-    attr_parser.set_defaults(func=list_player_attributes)
-
-    list_parser = player_subparsers.add_parser("list", help="List all players")
-    list_parser.set_defaults(func=list_players)
-
-    rank_parser = player_subparsers.add_parser(
-        "rank", help="Rank players by overall rating or attribute"
-    )
-    rank_parser.add_argument(
-        "attribute",
-        nargs="?",
-        help=(
-            "Attribute to rank by (overall, shooting, dribbling, passing, "
-            "tackling, fitness, goalkeeping). If omitted, all rankings will "
-            "be shown."
-        ),
-    )
-    rank_parser.set_defaults(func=rank_players)
-
 
 def setup_team_subparser(subparsers):
     team_parser = subparsers.add_parser("teams", help="Manage teams & matches")
     team_subparsers = team_parser.add_subparsers(dest="action", required=True)
 
-    create_parser = team_subparsers.add_parser(
-        "create", help="Create balanced teams"
-    )
-    create_parser.add_argument(
-        "players", nargs="+", type=str, help="List of player names"
-    )
-    create_parser.set_defaults(func=create_teams)
-
-    result_parser = team_subparsers.add_parser(
-        "result", help="Record match result"
-    )
-    result_parser.add_argument(
-        "winning_team", choices=["team1", "team2"], help="Winning team"
-    )
-    result_parser.set_defaults(func=record_match_result)
-
+    # "attributes" command
     attr_parser = team_subparsers.add_parser(
         "attributes", help="Get team attribute ratings"
     )
@@ -393,6 +390,16 @@ def setup_team_subparser(subparsers):
     )
     attr_parser.set_defaults(func=get_team_attributes)
 
+    # "create" command
+    create_parser = team_subparsers.add_parser(
+        "create", help="Create balanced teams"
+    )
+    create_parser.add_argument(
+        "players", nargs="+", type=str, help="List of player names"
+    )
+    create_parser.set_defaults(func=create_teams)
+
+    # "rating" command
     rating_parser = team_subparsers.add_parser(
         "rating", help="Get overall team rating"
     )
@@ -401,6 +408,15 @@ def setup_team_subparser(subparsers):
     )
     rating_parser.set_defaults(func=get_team_rating)
 
+    # "result" command
+    result_parser = team_subparsers.add_parser(
+        "result", help="Record match result"
+    )
+    result_parser.add_argument(
+        "winning_team", choices=["team1", "team2"], help="Winning team"
+    )
+    result_parser.set_defaults(func=record_match_result)
+
 
 def setup_database_subparser(subparsers):
     database_parser = subparsers.add_parser("database", help="Manage database")
@@ -408,11 +424,18 @@ def setup_database_subparser(subparsers):
         dest="action", required=True
     )
 
+    # "clear" command
     clear_parser = database_subparsers.add_parser(
         "clear", help="Clear all database data"
     )
-    clear_parser.set_defaults(func=clear_database)
+    clear_parser.set_defaults(
+        func=lambda args: (
+            db.clear_database(),
+            print("🗑️ All data has been removed from the database."),
+        )
+    )
 
+    # "export" command
     export_parser = database_subparsers.add_parser(
         "export", help="Export players to a CSV file"
     )
@@ -423,8 +446,11 @@ def setup_database_subparser(subparsers):
         default="players_export.csv",
         help="Output CSV filename",
     )
-    export_parser.set_defaults(func=export_csv)
+    export_parser.set_defaults(
+        func=lambda args: db.export_to_csv(args.filename)
+    )
 
+    # "import" command
     import_parser = database_subparsers.add_parser(
         "import", help="Import players from a CSV file"
     )
@@ -435,7 +461,9 @@ def setup_database_subparser(subparsers):
         default="players_import.csv",
         help="Input CSV filename",
     )
-    import_parser.set_defaults(func=import_csv)
+    import_parser.set_defaults(
+        func=lambda args: db.import_from_csv(args.filename)
+    )
 
 
 # --------------------------
