@@ -22,6 +22,8 @@ __all__ = [
     "Player",
 ]
 
+NUM_ATTRIBUTES = 6
+
 
 @dataclass
 class PlayerAttribute:
@@ -188,7 +190,7 @@ class Player:
             getattr(self.attributes, attr).get_score()
             for attr in vars(self.attributes)
         )
-        return total_rating / 6  # Normalize the rating
+        return total_rating / NUM_ATTRIBUTES  # Normalize the rating
 
     def update_trueskill(self, won: bool):
         """

@@ -108,17 +108,17 @@ def test_remove_player(reset_database):
             "add",
             "TestPlayer",
             "--shooting",
-            "80",
+            "8",
             "--dribbling",
-            "70",
+            "7",
             "--passing",
-            "85",
+            "8",
             "--tackling",
-            "60",
+            "6",
             "--fitness",
-            "90",
+            "9",
             "--goalkeeping",
-            "50",
+            "5",
         ]
     )
 

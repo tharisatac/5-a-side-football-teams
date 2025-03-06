@@ -112,24 +112,23 @@ def get_team_attributes(args):
     ]
     for attr in attributes:
         avg_rating = sum(
-            getattr(db.get_player_by_name(name).attributes, attr).score
-            for name in teams[team_key]
-        ) / len(teams[team_key])
+            getattr(player.attributes, attr).score
+            for player in teams[team_key].players
+        ) / len(teams[team_key].players)
         print(f"- {attr.capitalize()}: {avg_rating:.2f}")
 
 
 def get_team_rating(args):
     """Displays the overall team rating of the last generated team."""
     team_key = "team1" if args.team == "team1" else "team2"
-    team = db.last_teams.get(team_key)
+    teams = db.get_last_teams()
+    team = teams[team_key]
 
     if not team:
         print(f"❌ No previous team '{team_key}' found.")
         return
 
-    overall_rating = sum(player.get_overall_rating() for player in team) / len(
-        team
-    )
+    overall_rating = team.get_overall_rating()
     print(
         f"\n⭐ **{team_key.capitalize()} Overall Rating:** "
         f"{overall_rating:.2f}"

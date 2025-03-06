@@ -74,7 +74,8 @@ class DB:
         CREATE TABLE IF NOT EXISTS last_teams (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             player_name TEXT NOT NULL,
-            team TEXT CHECK(team IN ('team1', 'team2')) NOT NULL
+            team TEXT CHECK(team IN ('team1', 'team2')) NOT NULL,
+            bonus REAL
         );
         """
         )
@@ -254,71 +255,76 @@ class DB:
         # Store new teams
         for player in team1.players:
             self.cursor.execute(
-                "INSERT INTO last_teams (player_name, team) VALUES (?, ?)",
-                (player.name, "team1"),
+                "INSERT INTO last_teams (player_name, team, bonus) VALUES (?, ?, ?)",
+                (player.name, "team1", team1.bonus),
             )
         for player in team2.players:
             self.cursor.execute(
-                "INSERT INTO last_teams (player_name, team) VALUES (?, ?)",
-                (player.name, "team2"),
+                "INSERT INTO last_teams (player_name, team, bonus) VALUES (?, ?, ?)",
+                (player.name, "team2", team2.bonus),
             )
 
         self.conn.commit()
 
         return team1, team2
 
-    def get_last_teams(self) -> Dict[str, List[str]]:
+    def get_last_teams(self) -> Dict[str, Team]:
         """
         Retrieves the last stored teams from the database.
 
         :return:
             Dictionary with player names in "team1" and "team2".
         """
-        self.cursor.execute("SELECT player_name, team FROM last_teams")
+        self.cursor.execute("SELECT player_name, team, bonus FROM last_teams")
         rows = self.cursor.fetchall()
 
-        teams: Dict[str, List[str]] = {"team1": [], "team2": []}
-        for player_name, team in rows:
-            teams[team].append(player_name)
+        team1_players = []
+        team2_players = []
+        team1_bonus = 0.0
+        team2_bonus = 0.0
 
-        return teams
+        for player_name, team, bonus in rows:
+            if team == "team1":
+                team1_players.append(self.get_player_by_name(player_name))
+                team1_bonus = bonus
+            else:
+                team2_players.append(self.get_player_by_name(player_name))
+                team2_bonus = bonus
+
+        return {
+            "team1": Team(
+                list(player for player in team1_players if player is not None),
+                team1_bonus,
+            ),
+            "team2": Team(
+                list(player for player in team2_players if player is not None),
+                team2_bonus,
+            ),
+        }
 
     def record_match_result(self, winning_team: str) -> None:
         """
         Records the last match result and updates player forms and TrueSkill ratings.
         """
         teams = self.get_last_teams()
-        if not teams["team1"] or not teams["team2"]:
+        if not teams["team1"].players or not teams["team2"].players:
             print("❌ Error: No match data available.")
             return
 
-        # Convert player names to Player objects
-        team1_players = [
-            self.get_player_by_name(name) for name in teams["team1"]
-        ]
-        formatted_team1_players: List[Player] = [
-            player for player in team1_players if player is not None
-        ]
-
-        team2_players = [
-            self.get_player_by_name(name) for name in teams["team2"]
-        ]
-        formatted_team2_players: List[Player] = [
-            player for player in team2_players if player is not None
-        ]
-
         # Determine winners and losers
         team1_won = winning_team == "team1"
+        team1 = teams["team1"]
+        team2 = teams["team2"]
 
         # Update TrueSkill & form for all players
-        for player in formatted_team1_players:
+        for player in team1.players:
             player.update_trueskill(won=team1_won)
 
-        for player in formatted_team2_players:
+        for player in team2.players:
             player.update_trueskill(won=not team1_won)
 
         # Persist updated player ratings and form to the database
-        for player in formatted_team1_players + formatted_team2_players:
+        for player in team1.players + team2.players:
             self.cursor.execute(
                 """
                 UPDATE players SET form = ?, trueskill_mu = ?, trueskill_sigma = ? WHERE name = ?

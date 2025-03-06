@@ -152,7 +152,7 @@ def test_record_match_result(db, sample_players):
 
     # Ensure teams were assigned correctly
     assert "team1" in teams and "team2" in teams
-    assert len(teams["team1"]) > 0 and len(teams["team2"]) > 0
+    assert len(teams["team1"].players) > 0 and len(teams["team2"].players) > 0
 
     # Select the winning team dynamically
     winning_team = "team1"
@@ -161,23 +161,23 @@ def test_record_match_result(db, sample_players):
     db.record_match_result(winning_team)
 
     # Check if forms are updated correctly
-    for player_name in teams[winning_team]:  # Winners should gain form
+    for player in teams[winning_team].players:  # Winners should gain form
         db.cursor.execute(
-            "SELECT form FROM players WHERE name = ?", (player_name,)
+            "SELECT form FROM players WHERE name = ?", (player.name,)
         )
         new_form = db.cursor.fetchone()[0]
         assert (
             new_form == 6
-        ), f"❌ {player_name} should have form 6 but got {new_form}"
+        ), f"❌ {player.name} should have form 6 but got {new_form}"
 
-    for player_name in teams[losing_team]:  # Losers should lose form
+    for player in teams[losing_team].players:  # Losers should lose form
         db.cursor.execute(
-            "SELECT form FROM players WHERE name = ?", (player_name,)
+            "SELECT form FROM players WHERE name = ?", (player.name,)
         )
         new_form = db.cursor.fetchone()[0]
         assert (
             new_form == 4
-        ), f"❌ {player_name} should have form 4 but got {new_form}"
+        ), f"❌ {player.name} should have form 4 but got {new_form}"
 
 
 def test_get_player_by_name(db, sample_players):
@@ -259,37 +259,37 @@ def test_trueskill_updates_after_match(db, sample_players):
 
     # Get initial TrueSkill values
     initial_trueskill = {}
-    for team_name, players in teams.items():
-        for player_name in players:
+    for team_name, team in teams.items():
+        for player in team.players:
             db.cursor.execute(
                 "SELECT trueskill_mu FROM players WHERE name = ?",
-                (player_name,),
+                (player.name,),
             )
-            initial_trueskill[player_name] = db.cursor.fetchone()[0]
+            initial_trueskill[player.name] = db.cursor.fetchone()[0]
 
     # Record match result
     db.record_match_result(winning_team)
 
     # Verify TrueSkill updates
-    for player_name in teams[winning_team]:  # Winners should increase
+    for player in teams[winning_team].players:  # Winners should increase
         db.cursor.execute(
             "SELECT trueskill_mu FROM players WHERE name = ?",
-            (player_name,),
+            (player.name,),
         )
         new_trueskill = db.cursor.fetchone()[0]
         assert (
-            new_trueskill > initial_trueskill[player_name]
-        ), f"❌ {player_name} should have increased TrueSkill but got {new_trueskill}"
+            new_trueskill > initial_trueskill[player.name]
+        ), f"❌ {player.name} should have increased TrueSkill but got {new_trueskill}"
 
-    for player_name in teams[losing_team]:  # Losers should decrease
+    for player in teams[losing_team].players:  # Losers should decrease
         db.cursor.execute(
             "SELECT trueskill_mu FROM players WHERE name = ?",
-            (player_name,),
+            (player.name,),
         )
         new_trueskill = db.cursor.fetchone()[0]
         assert (
-            new_trueskill < initial_trueskill[player_name]
-        ), f"❌ {player_name} should have decreased TrueSkill but got {new_trueskill}"
+            new_trueskill < initial_trueskill[player.name]
+        ), f"❌ {player.name} should have decreased TrueSkill but got {new_trueskill}"
 
 
 def test_trueskill_remains_within_bounds(db, sample_players):
@@ -309,20 +309,20 @@ def test_trueskill_remains_within_bounds(db, sample_players):
         db.record_match_result(winning_team)
 
     # Verify TrueSkill does not exceed a reasonable cap
-    for player_name in teams[winning_team]:
+    for player in teams[winning_team].players:
         db.cursor.execute(
-            "SELECT trueskill_mu FROM players WHERE name = ?", (player_name,)
+            "SELECT trueskill_mu FROM players WHERE name = ?", (player.name,)
         )
         mu = db.cursor.fetchone()[0]
         assert (
             mu <= 10
-        ), f"❌ {player_name}'s TrueSkill is unreasonably high: {mu}"
+        ), f"❌ {player.name}'s TrueSkill is unreasonably high: {mu}"
 
-    for player_name in teams[losing_team]:
+    for player in teams[losing_team].players:
         db.cursor.execute(
-            "SELECT trueskill_mu FROM players WHERE name = ?", (player_name,)
+            "SELECT trueskill_mu FROM players WHERE name = ?", (player.name,)
         )
         mu = db.cursor.fetchone()[0]
         assert (
             mu >= 1
-        ), f"❌ {player_name}'s TrueSkill is unreasonably low: {mu}"
+        ), f"❌ {player.name}'s TrueSkill is unreasonably low: {mu}"
