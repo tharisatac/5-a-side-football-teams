@@ -18,7 +18,10 @@ db = DB(db_name=os.getenv("FOOTBALL_DB", "football.db"))
 
 
 def add_player(args):
-    """Adds a new player to the database."""
+    """
+    Adds a new player to the database.
+    Usage: player add <player_name>
+    """
 
     attributes = Attributes.from_values(
         {
@@ -36,13 +39,19 @@ def add_player(args):
 
 
 def remove_player(args):
-    """Removes a player from the database."""
+    """
+    Removes a player from the database.
+    Usage: player remove <player_name>
+    """
     db.remove_player(args.name)
     print(f"🗑️ Player '{args.name}' removed.")
 
 
 def update_player(args):
-    """Updates a player's attribute."""
+    """
+    Updates a player's attribute.
+    Usage: player update <player_name> <attribute> <value>"
+    """
     attributes_map = {
         "s": "shooting",
         "d": "dribbling",
@@ -57,7 +66,10 @@ def update_player(args):
 
 
 def list_players(args):
-    """Lists all players in the database."""
+    """
+    Lists all players in the database.
+    Usage: player list
+    """
     players = db.get_all_players()
     if not players:
         print("❌ No players found in the database.")
