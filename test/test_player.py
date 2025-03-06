@@ -183,7 +183,6 @@ def test_identical_players_different_form():
         form=9,
     )
 
-    breakpoint()
     assert (
         player2.get_overall_rating() > player1.get_overall_rating()
     )  # Higher form = higher rating

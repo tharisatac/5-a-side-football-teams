@@ -20,6 +20,16 @@ __all__ = [
 
 NUM_ATTRIBUTES = 6
 
+# Define weights for each attribute based on a 5-a-side game focus.
+ATTRIBUTE_WEIGHTS = {
+    "shooting": 0.30,
+    "dribbling": 0.30,
+    "passing": 0.15,
+    "tackling": 0.15,
+    "fitness": 0.05,
+    "goalkeeping": 0.05,
+}
+
 
 @dataclass
 class PlayerAttribute:
@@ -96,12 +106,12 @@ class Attributes:
                 )
 
         return cls(
-            shooting=Shooting(values.get("shooting", 65)),
-            dribbling=Dribbling(values.get("dribbling", 65)),
-            passing=Passing(values.get("passing", 65)),
-            tackling=Tackling(values.get("tackling", 65)),
-            fitness=Fitness(values.get("fitness", 65)),
-            goalkeeping=Goalkeeping(values.get("goalkeeping", 65)),
+            shooting=Shooting(values.get("shooting", 5)),
+            dribbling=Dribbling(values.get("dribbling", 5)),
+            passing=Passing(values.get("passing", 5)),
+            tackling=Tackling(values.get("tackling", 5)),
+            fitness=Fitness(values.get("fitness", 5)),
+            goalkeeping=Goalkeeping(values.get("goalkeeping", 5)),
         )
 
 
@@ -122,13 +132,13 @@ class Player:
 
     def _get_base_rating(self) -> float:
         """
-        Compute base rating as the average of all player attributes.
+        Computes the base rating as a weighted average of all player attributes.
         """
-        total_rating = sum(
-            getattr(self.attributes, attr).get_score()
-            for attr in vars(self.attributes)
+        weighted_sum = sum(
+            getattr(self.attributes, attr).get_score() * weight
+            for attr, weight in ATTRIBUTE_WEIGHTS.items()
         )
-        return total_rating / NUM_ATTRIBUTES
+        return weighted_sum
 
     def get_overall_rating(self) -> float:
         """

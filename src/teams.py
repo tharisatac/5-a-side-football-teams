@@ -8,7 +8,7 @@ from typing import List, Tuple
 
 from .player import Player
 
-LARGE_TEAM_BOOST = 1.01
+LARGE_TEAM_BOOST = 1.2
 
 
 class Team:
