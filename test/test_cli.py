@@ -101,6 +101,46 @@ def test_list_players_shows_all_attributes(reset_database):
     assert "Goalkeeping" in result.stdout
 
 
+def test_list_player_attributes(reset_database):
+    """
+    Test that `player attributes` display the player's attributes.
+    """
+    subprocess.run(
+        [
+            CLI_COMMAND,
+            "player",
+            "add",
+            "TestPlayer",
+            "--shooting",
+            "8",
+            "--dribbling",
+            "9",
+            "--passing",
+            "7",
+            "--tackling",
+            "6",
+            "--fitness",
+            "8",
+            "--goalkeeping",
+            "5",
+        ]
+    )
+
+    result = subprocess.run(
+        [CLI_COMMAND, "player", "attributes", "TestPlayer"],
+        capture_output=True,
+        text=True,
+    )
+
+    assert "📊 Attributes for" in result.stdout
+    assert "Shooting:     8" in result.stdout
+    assert "Dribbling:    9" in result.stdout
+    assert "Passing:      7" in result.stdout
+    assert "Tackling:     6" in result.stdout
+    assert "Fitness:      8" in result.stdout
+    assert "Goalkeeping:  5" in result.stdout
+
+
 def test_remove_player(reset_database):
     """
     Tests removing a player.

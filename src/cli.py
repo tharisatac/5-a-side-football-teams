@@ -101,6 +101,25 @@ def list_players(args):
         )
 
 
+def list_player_attributes(args):
+    """
+    Lists all the attribute values for a given player.
+    Usage: player attributes <player_name>
+    """
+    player = db.get_player_by_name(args.name)
+    if not player:
+        print(f"❌ Player '{args.name}' not found.")
+        return
+
+    print(f"\n📊 Attributes for {player.name}:")
+    print(f"  Shooting:     {player.attributes.shooting.get_score()}")
+    print(f"  Dribbling:    {player.attributes.dribbling.get_score()}")
+    print(f"  Passing:      {player.attributes.passing.get_score()}")
+    print(f"  Tackling:     {player.attributes.tackling.get_score()}")
+    print(f"  Fitness:      {player.attributes.fitness.get_score()}")
+    print(f"  Goalkeeping:  {player.attributes.goalkeeping.get_score()}")
+
+
 # --------------------------
 # Team Command Handlers
 # --------------------------
@@ -265,6 +284,12 @@ def setup_player_subparser(subparsers):
     )
     rating_parser.add_argument("name", type=str, help="Player's name")
     rating_parser.set_defaults(func=get_player_rating)
+
+    attr_parser = player_subparsers.add_parser(
+        "attributes", help="Show a player's attributes"
+    )
+    attr_parser.add_argument("name", type=str, help="Player's name")
+    attr_parser.set_defaults(func=list_player_attributes)
 
     list_parser = player_subparsers.add_parser("list", help="List all players")
     list_parser.set_defaults(func=list_players)
