@@ -3,6 +3,7 @@ This module provides SQLite database functionality for managing players,
 teams (as dynamic subsets), and match history.
 """
 
+import csv
 import os
 import sqlite3
 from typing import Dict, List, Optional, Tuple
@@ -181,6 +182,17 @@ class DB:
             for row in rows
         ]
 
+    def reset_player_forms(self) -> None:
+        """
+        Resets all players' forms to the default value (5).
+        """
+        try:
+            self.cursor.execute("UPDATE players SET form = 5")
+            self.conn.commit()
+            print("✅ All player forms have been reset to 5.")
+        except Exception as e:
+            print(f"❌ Failed to reset forms: {e}")
+
     def create_teams(
         self, player_names: List[str]
     ) -> Optional[Tuple[Team, Team]]:
@@ -285,6 +297,58 @@ class DB:
         self.conn.commit()
 
         print(f"✅ Match recorded! Winning team: {winning_team.capitalize()}")
+
+    def export_to_csv(self, filename: str) -> None:
+        """
+        Exports the players table to a CSV file.
+        """
+        self.cursor.execute(
+            "SELECT id, name, shooting, dribbling, passing, tackling, fitness, goalkeeping, form FROM players"
+        )
+        rows = self.cursor.fetchall()
+        headers = [desc[0] for desc in self.cursor.description]
+        try:
+            with open(filename, mode="w", newline="") as f:
+                writer = csv.writer(f)
+                writer.writerow(headers)
+                writer.writerows(rows)
+            print(f"✅ Exported players to '{filename}'.")
+        except Exception as e:
+            print(f"❌ Failed to export CSV: {e}")
+
+    def import_from_csv(self, filename: str) -> None:
+        """
+        Imports players from a CSV file into the database.
+        """
+        try:
+            with open(filename, mode="r", newline="") as f:
+                reader = csv.DictReader(f)
+                count = 0
+                for row in reader:
+                    try:
+                        attributes = {
+                            "shooting": float(row["shooting"]),
+                            "dribbling": float(row["dribbling"]),
+                            "passing": float(row["passing"]),
+                            "tackling": float(row["tackling"]),
+                            "fitness": float(row["fitness"]),
+                            "goalkeeping": float(row["goalkeeping"]),
+                        }
+                        player_attributes = Attributes.from_values(attributes)
+                        player = Player(
+                            name=row["name"],
+                            attributes=player_attributes,
+                            form=int(row["form"]),
+                        )
+                        self.add_player(player)
+                        count += 1
+                    except Exception as e:
+                        print(
+                            f"⚠️ Could not import player {row.get('name', '<unknown>')}: {e}"
+                        )
+                print(f"✅ Imported {count} players from '{filename}'.")
+        except FileNotFoundError:
+            print(f"❌ File '{filename}' not found.")
 
     def clear_database(self):
         """

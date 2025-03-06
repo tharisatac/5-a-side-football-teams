@@ -3,7 +3,6 @@ CLI module for managing players, teams, match results, and CSV import/export.
 """
 
 import argparse
-import csv
 import os
 
 from .db import DB
@@ -185,55 +184,12 @@ def clear_database(args):
 
 def export_csv(args):
     """Exports the players table to a CSV file."""
-    filename = args.filename
-    db.cursor.execute(
-        "SELECT id, name, shooting, dribbling, passing, tackling, fitness, goalkeeping, form FROM players"
-    )
-    rows = db.cursor.fetchall()
-    headers = [desc[0] for desc in db.cursor.description]
-    try:
-        with open(filename, mode="w", newline="") as f:
-            writer = csv.writer(f)
-            writer.writerow(headers)
-            writer.writerows(rows)
-        print(f"✅ Exported players to '{filename}'.")
-    except Exception as e:
-        print(f"❌ Failed to export CSV: {e}")
+    db.export_to_csv(args.filename)
 
 
 def import_csv(args):
     """Imports players from a CSV file into the database."""
-    filename = args.filename
-    try:
-        with open(filename, mode="r", newline="") as f:
-            reader = csv.DictReader(f)
-            count = 0
-            for row in reader:
-                try:
-                    # Create Attributes using the CSV row data.
-                    attributes = {
-                        "shooting": int(row["shooting"]),
-                        "dribbling": int(row["dribbling"]),
-                        "passing": int(row["passing"]),
-                        "tackling": int(row["tackling"]),
-                        "fitness": int(row["fitness"]),
-                        "goalkeeping": int(row["goalkeeping"]),
-                    }
-                    player_attributes = Attributes.from_values(attributes)
-                    player = Player(
-                        name=row["name"],
-                        attributes=player_attributes,
-                        form=int(row["form"]),
-                    )
-                    db.add_player(player)
-                    count += 1
-                except Exception as e:
-                    print(
-                        f"⚠️ Could not import player {row.get('name', '<unknown>')}: {e}"
-                    )
-            print(f"✅ Imported {count} players from '{filename}'.")
-    except FileNotFoundError:
-        print(f"❌ File '{filename}' not found.")
+    db.import_from_csv(args.filename)
 
 
 # --------------------------
@@ -288,6 +244,11 @@ def setup_player_subparser(subparsers):
     )
     remove_parser.add_argument("name", type=str, help="Player's name")
     remove_parser.set_defaults(func=remove_player)
+
+    reset_parser = player_subparsers.add_parser(
+        "reset_forms", help="Reset all player forms to default (5)"
+    )
+    reset_parser.set_defaults(func=lambda args: db.reset_player_forms())
 
     update_parser = player_subparsers.add_parser(
         "update", help="Update a player's skill"
