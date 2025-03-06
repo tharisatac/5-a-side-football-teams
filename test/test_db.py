@@ -142,6 +142,7 @@ def test_create_teams(db, sample_players):
 def test_record_match_result(db, sample_players):
     """
     Tests recording a match result and updating player form.
+    Winners should have their form increased and losers decreased.
     """
     for player in sample_players:
         db.add_player(player)
@@ -154,30 +155,30 @@ def test_record_match_result(db, sample_players):
     assert "team1" in teams and "team2" in teams
     assert len(teams["team1"].players) > 0 and len(teams["team2"].players) > 0
 
-    # Select the winning team dynamically
+    # Define winners and losers
     winning_team = "team1"
     losing_team = "team2"
 
     db.record_match_result(winning_team)
 
-    # Check if forms are updated correctly
-    for player in teams[winning_team].players:  # Winners should gain form
+    # Check if forms are updated correctly: winners should go from 5 to 6, losers from 5 to 4.
+    for player in teams[winning_team].players:
         db.cursor.execute(
             "SELECT form FROM players WHERE name = ?", (player.name,)
         )
         new_form = db.cursor.fetchone()[0]
         assert (
             new_form == 6
-        ), f"❌ {player.name} should have form 6 but got {new_form}"
+        ), f"Expected form 6 for {player.name} but got {new_form}"
 
-    for player in teams[losing_team].players:  # Losers should lose form
+    for player in teams[losing_team].players:
         db.cursor.execute(
             "SELECT form FROM players WHERE name = ?", (player.name,)
         )
         new_form = db.cursor.fetchone()[0]
         assert (
             new_form == 4
-        ), f"❌ {player.name} should have form 4 but got {new_form}"
+        ), f"Expected form 4 for {player.name} but got {new_form}"
 
 
 def test_get_player_by_name(db, sample_players):
@@ -221,108 +222,26 @@ def test_record_match_without_teams(db):
     db.record_match_result("team1")
     db.cursor.execute("SELECT COUNT(*) FROM matches")
     match_count = db.cursor.fetchone()[0]
-
     assert match_count == 0  # No matches should be recorded
 
 
-def test_add_player_trueskill(db, sample_players):
+def test_overall_rating_calculation(sample_players):
     """
-    Tests that a player's TrueSkill rating is stored and retrieved correctly.
+    Tests that the overall rating is calculated correctly.
+    Overall rating = (average attribute score) * (1 + 0.05 * (form - 5))
     """
     player = sample_players[0]
-    db.add_player(player)
+    base_rating = (
+        player.attributes.shooting.score
+        + player.attributes.dribbling.score
+        + player.attributes.passing.score
+        + player.attributes.tackling.score
+        + player.attributes.fitness.score
+        + player.attributes.goalkeeping.score
+    ) / 6
 
-    # Retrieve player from DB
-    db.cursor.execute(
-        "SELECT trueskill_mu, trueskill_sigma FROM players WHERE name = ?",
-        (player.name,),
-    )
-    mu, sigma = db.cursor.fetchone()
+    multiplier = 1 + 0.05 * (player.form - 5)
+    expected_overall = base_rating * multiplier
 
-    assert mu == pytest.approx(player.trueskill_rating.mu, rel=1e-2)
-    assert sigma == pytest.approx(player.trueskill_rating.sigma, rel=1e-2)
-
-
-def test_trueskill_updates_after_match(db, sample_players):
-    """
-    Tests that TrueSkill ratings update correctly after a match.
-    """
-    for player in sample_players:
-        db.add_player(player)
-
-    # Create teams dynamically
-    db.create_teams(["Player 1", "Player 2", "Player 3", "Player 4"])
-    teams = db.get_last_teams()
-
-    winning_team = "team1"
-    losing_team = "team2"
-
-    # Get initial TrueSkill values
-    initial_trueskill = {}
-    for team_name, team in teams.items():
-        for player in team.players:
-            db.cursor.execute(
-                "SELECT trueskill_mu FROM players WHERE name = ?",
-                (player.name,),
-            )
-            initial_trueskill[player.name] = db.cursor.fetchone()[0]
-
-    # Record match result
-    db.record_match_result(winning_team)
-
-    # Verify TrueSkill updates
-    for player in teams[winning_team].players:  # Winners should increase
-        db.cursor.execute(
-            "SELECT trueskill_mu FROM players WHERE name = ?",
-            (player.name,),
-        )
-        new_trueskill = db.cursor.fetchone()[0]
-        assert (
-            new_trueskill > initial_trueskill[player.name]
-        ), f"❌ {player.name} should have increased TrueSkill but got {new_trueskill}"
-
-    for player in teams[losing_team].players:  # Losers should decrease
-        db.cursor.execute(
-            "SELECT trueskill_mu FROM players WHERE name = ?",
-            (player.name,),
-        )
-        new_trueskill = db.cursor.fetchone()[0]
-        assert (
-            new_trueskill < initial_trueskill[player.name]
-        ), f"❌ {player.name} should have decreased TrueSkill but got {new_trueskill}"
-
-
-def test_trueskill_remains_within_bounds(db, sample_players):
-    """
-    Ensures TrueSkill never exceeds reasonable limits even after many matches.
-    """
-    for player in sample_players:
-        db.add_player(player)
-
-    db.create_teams(["Player 1", "Player 2", "Player 3", "Player 4"])
-    teams = db.get_last_teams()
-    winning_team = "team1"
-    losing_team = "team2"
-
-    # Simulate multiple wins
-    for _ in range(50):  # High number of matches
-        db.record_match_result(winning_team)
-
-    # Verify TrueSkill does not exceed a reasonable cap
-    for player in teams[winning_team].players:
-        db.cursor.execute(
-            "SELECT trueskill_mu FROM players WHERE name = ?", (player.name,)
-        )
-        mu = db.cursor.fetchone()[0]
-        assert (
-            mu <= 10
-        ), f"❌ {player.name}'s TrueSkill is unreasonably high: {mu}"
-
-    for player in teams[losing_team].players:
-        db.cursor.execute(
-            "SELECT trueskill_mu FROM players WHERE name = ?", (player.name,)
-        )
-        mu = db.cursor.fetchone()[0]
-        assert (
-            mu >= 1
-        ), f"❌ {player.name}'s TrueSkill is unreasonably low: {mu}"
+    overall_rating = player.get_overall_rating()
+    assert overall_rating == pytest.approx(expected_overall, rel=1e-2)

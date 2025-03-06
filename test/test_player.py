@@ -1,5 +1,4 @@
 import pytest
-import trueskill
 
 from src.player import Attributes, Player
 
@@ -46,49 +45,48 @@ def test_player_base_rating(default_player):
 
 def test_player_overall_rating(default_player):
     """
-    Ensures that the TrueSkill rating is initialized correctly.
+    Tests that the overall rating is calculated correctly based on attributes and form.
+    Overall Rating = (Base Rating) * (1 + 0.05 * (form - 5))
     """
     player = default_player
-
     base_rating = player._get_base_rating()
-    expected_trueskill = trueskill.Rating(
-        mu=base_rating, sigma=max(10 - player.form, player.min_sigma)
-    )
+    multiplier = 1 + 0.05 * (player.form - 5)
+    expected_overall = base_rating * multiplier
 
     assert player.get_overall_rating() == pytest.approx(
-        expected_trueskill.mu * (1 + 0.05 * player.form), rel=1e-2
+        expected_overall, rel=1e-2
     )
 
 
-def test_trueskill_update_on_win(default_player):
+def test_update_on_win(default_player):
     """
-    Ensures TrueSkill updates correctly after a win.
-    """
-    player = default_player
-    old_mu = player.get_overall_rating()
-
-    player.update_trueskill(won=True)
-
-    assert player.form == 6  # Form should increase
-    assert player.get_overall_rating() > old_mu  # Rating should improve
-
-
-def test_trueskill_update_on_loss(default_player):
-    """
-    Ensures TrueSkill updates correctly after a loss.
+    Ensures that updating form after a win increases the form and overall rating.
     """
     player = default_player
-    old_mu = player.get_overall_rating()
+    old_overall = player.get_overall_rating()
+    player.update_form(won=True)
+    # Form should increase from 5 to 6
+    assert player.form == 6
+    # Overall rating should improve
+    assert player.get_overall_rating() > old_overall
 
-    player.update_trueskill(won=False)
 
-    assert player.form == 4  # Form should decrease
-    assert player.get_overall_rating() < old_mu  # Rating should drop
+def test_update_on_loss(default_player):
+    """
+    Ensures that updating form after a loss decreases the form and overall rating.
+    """
+    player = default_player
+    old_overall = player.get_overall_rating()
+    player.update_form(won=False)
+    # Form should decrease from 5 to 4
+    assert player.form == 4
+    # Overall rating should drop
+    assert player.get_overall_rating() < old_overall
 
 
 def test_form_clamping():
     """
-    Ensures form values stay between 0 and 10.
+    Ensures that form values are clamped between 0 and 10.
     """
     player_low = Player(
         name="Low Form",
@@ -119,13 +117,13 @@ def test_form_clamping():
         form=15,
     )
 
-    assert player_low.form == 0  # Should be clamped to 0
-    assert player_high.form == 10  # Should be clamped to 10
+    assert player_low.form == 0  # Clamped to 0
+    assert player_high.form == 10  # Clamped to 10
 
 
 def test_attributes_remain_fixed_after_rating():
     """
-    Ensures attributes remain unchanged after calling `get_overall_rating`.
+    Ensures that the player's attribute values remain unchanged after calculating the overall rating.
     """
     player = Player(
         name="Fixed Attr",
@@ -142,19 +140,19 @@ def test_attributes_remain_fixed_after_rating():
         form=5,
     )
 
-    original_attributes = vars(player.attributes).copy()
+    original_attributes = {
+        attr: getattr(player.attributes, attr).get_score()
+        for attr in vars(player.attributes)
+    }
     _ = player.get_overall_rating()
 
     for attr, original_value in original_attributes.items():
-        assert (
-            getattr(player.attributes, attr).get_score()
-            == original_value.get_score()
-        )
+        assert getattr(player.attributes, attr).get_score() == original_value
 
 
 def test_identical_players_different_form():
     """
-    Ensures identical players with different form values have different ratings.
+    Ensures that identical players with different form values have different overall ratings.
     """
     player1 = Player(
         name="Player 1",
@@ -170,8 +168,22 @@ def test_identical_players_different_form():
         ),
         form=3,
     )
-    player2 = Player(name="Player 2", attributes=player1.attributes, form=9)
+    player2 = Player(
+        name="Player 2",
+        attributes=Attributes.from_values(
+            {
+                "shooting": 5,
+                "dribbling": 5,
+                "passing": 5,
+                "tackling": 5,
+                "fitness": 5,
+                "goalkeeping": 5,
+            }
+        ),
+        form=9,
+    )
 
+    breakpoint()
     assert (
         player2.get_overall_rating() > player1.get_overall_rating()
     )  # Higher form = higher rating
@@ -179,7 +191,7 @@ def test_identical_players_different_form():
 
 def test_edge_case_attributes():
     """
-    Ensures players with extreme attributes get the correct TrueSkill rating.
+    Ensures that a player with extreme attribute values gets the correct overall rating.
     """
     player = Player(
         name="Extreme",
@@ -197,18 +209,17 @@ def test_edge_case_attributes():
     )
 
     base_rating = player._get_base_rating()
-    expected_trueskill = trueskill.Rating(
-        mu=base_rating * (1 + 0.05 * player.form), sigma=player.min_sigma
-    )
+    multiplier = 1 + 0.05 * (player.form - 5)
+    expected_overall = base_rating * multiplier
 
     assert player.get_overall_rating() == pytest.approx(
-        expected_trueskill.mu, rel=1e-2
+        expected_overall, rel=1e-2
     )
 
 
 def test_invalid_input():
     """
-    Ensures non-numeric attribute values raise a ValueError.
+    Ensures that non-numeric attribute values raise a ValueError.
     """
     invalid_player_data = {
         "shooting": "invalid",

@@ -1,18 +1,11 @@
 """
 This module provides SQLite database functionality for managing players,
 teams (as dynamic subsets), and match history.
-
-Tables:
-    - players: Stores player attributes.
-    - matches: Stores match results.
-    - match_players: Links players to matches.
 """
 
 import os
 import sqlite3
 from typing import Dict, List, Optional, Tuple
-
-import trueskill
 
 from .player import Attributes, Player
 from .teams import Team, TeamCreator
@@ -26,9 +19,6 @@ class DB:
     def __init__(self, db_name=None):
         """
         Initializes the database connection and creates tables if needed.
-
-        :param db_name:
-            The name of the SQLite database file.
         """
         self.db_name = db_name or os.getenv("FOOTBALL_DB", "football.db")
         self.conn = sqlite3.connect(self.db_name)
@@ -50,9 +40,7 @@ class DB:
             tackling INTEGER,
             fitness INTEGER,
             goalkeeping INTEGER,
-            form INTEGER DEFAULT 5,
-            trueskill_mu REAL DEFAULT 25,      
-            trueskill_sigma REAL DEFAULT 8.333 
+            form INTEGER DEFAULT 5
         );
 
         CREATE TABLE IF NOT EXISTS matches (
@@ -84,17 +72,12 @@ class DB:
     def add_player(self, player: Player) -> Optional[int]:
         """
         Adds a new player to the database.
-
-        :param player:
-            The Player object to add.
-        :return:
-            The database ID of the added player.
         """
         try:
             self.cursor.execute(
                 """
-               INSERT INTO players (name, shooting, dribbling, passing, tackling, fitness, goalkeeping, form, trueskill_mu, trueskill_sigma)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+               INSERT INTO players (name, shooting, dribbling, passing, tackling, fitness, goalkeeping, form)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                """,
                 (
                     player.name,
@@ -105,8 +88,6 @@ class DB:
                     player.attributes.fitness.score,
                     player.attributes.goalkeeping.score,
                     player.form,
-                    player.trueskill_rating.mu,
-                    player.trueskill_rating.sigma,
                 ),
             )
             self.conn.commit()
@@ -118,9 +99,6 @@ class DB:
     def remove_player(self, name: str) -> None:
         """
         Removes a player from the database.
-
-        :param name:
-            The name of the player to remove.
         """
         self.cursor.execute("DELETE FROM players WHERE name = ?", (name,))
         self.conn.commit()
@@ -130,13 +108,6 @@ class DB:
     ) -> None:
         """
         Updates a player's attribute.
-
-        :param name:
-            The player's name.
-        :param attribute:
-            The attribute to update (shooting, dribbling, etc.).
-        :param value:
-            The new value.
         """
         valid_attributes = [
             "shooting",
@@ -159,15 +130,10 @@ class DB:
     def get_player_by_name(self, name: str) -> Optional[Player]:
         """
         Retrieves a player from the database by name.
-
-        :param name:
-            The player's name.
-        :return:
-            A Player object or None if not found.
         """
         self.cursor.execute(
             """
-        SELECT shooting, dribbling, passing, tackling, fitness, goalkeeping, form, trueskill_mu, trueskill_sigma
+        SELECT shooting, dribbling, passing, tackling, fitness, goalkeeping, form
         FROM players WHERE name = ?
         """,
             (name,),
@@ -187,16 +153,11 @@ class DB:
                 "goalkeeping": row[5],
             }
         )
-        player = Player(name=name, attributes=attributes, form=row[6])
-        player.trueskill_rating = trueskill.Rating(mu=row[7], sigma=row[8])
-        return player
+        return Player(name=name, attributes=attributes, form=row[6])
 
     def get_all_players(self) -> List[Dict]:
         """
         Retrieves all players from the database.
-
-        :return:
-            List of player dictionaries.
         """
         self.cursor.execute(
             """
@@ -224,20 +185,11 @@ class DB:
         self, player_names: List[str]
     ) -> Optional[Tuple[Team, Team]]:
         """
-        Creates balanced teams using `TeamCreator` and stores them in the
-        database.
-
-        :param player_names:
-            List of player names.
-        :return:
-            Two teams (team1, team2) or None if teams could not be created.
+        Creates balanced teams using `TeamCreator` and stores them in the database.
         """
         players = [self.get_player_by_name(name) for name in player_names]
-        formatted_players = [
-            p for p in players if p
-        ]  # Ensure only valid players
+        formatted_players = [p for p in players if p]
 
-        # Ensure we have enough players to form teams
         if len(formatted_players) < 2:
             print("❌ Not enough players to create teams.")
             return None
@@ -249,10 +201,8 @@ class DB:
         )
         team1, team2 = team_creator.create_balanced_teams()
 
-        # Remove previous teams
         self.cursor.execute("DELETE FROM last_teams")
 
-        # Store new teams
         for player in team1.players:
             self.cursor.execute(
                 "INSERT INTO last_teams (player_name, team, bonus) VALUES (?, ?, ?)",
@@ -271,9 +221,6 @@ class DB:
     def get_last_teams(self) -> Dict[str, Team]:
         """
         Retrieves the last stored teams from the database.
-
-        :return:
-            Dictionary with player names in "team1" and "team2".
         """
         self.cursor.execute("SELECT player_name, team, bonus FROM last_teams")
         rows = self.cursor.fetchall()
@@ -293,58 +240,47 @@ class DB:
 
         return {
             "team1": Team(
-                list(player for player in team1_players if player is not None),
+                [p for p in team1_players if p is not None],
                 team1_bonus,
             ),
             "team2": Team(
-                list(player for player in team2_players if player is not None),
+                [p for p in team2_players if p is not None],
                 team2_bonus,
             ),
         }
 
     def record_match_result(self, winning_team: str) -> None:
         """
-        Records the last match result and updates player forms and TrueSkill ratings.
+        Records the last match result and updates player form using the custom rating system.
         """
         teams = self.get_last_teams()
         if not teams["team1"].players or not teams["team2"].players:
             print("❌ Error: No match data available.")
             return
 
-        # Determine winners and losers
         team1_won = winning_team == "team1"
         team1 = teams["team1"]
         team2 = teams["team2"]
 
-        # Update TrueSkill & form for all players
+        # Update each player's form based on match outcome.
         for player in team1.players:
-            player.update_trueskill(won=team1_won)
-
+            player.update_form(won=team1_won)
         for player in team2.players:
-            player.update_trueskill(won=not team1_won)
+            player.update_form(won=not team1_won)
 
-        # Persist updated player ratings and form to the database
+        # Persist updated form to the database
         for player in team1.players + team2.players:
             self.cursor.execute(
-                """
-                UPDATE players SET form = ?, trueskill_mu = ?, trueskill_sigma = ? WHERE name = ?
-                """,
-                (
-                    player.form,
-                    player.trueskill_rating.mu,
-                    player.trueskill_rating.sigma,
-                    player.name,
-                ),
+                "UPDATE players SET form = ? WHERE name = ?",
+                (player.form, player.name),
             )
 
-        # Store match result in the database
         winner = 1 if team1_won else 2
         self.cursor.execute(
             "INSERT INTO matches (team_1_score, team_2_score, winner) VALUES (?, ?, ?)",
             (0, 0, winner),
         )
 
-        # Clear last teams after match
         self.cursor.execute("DELETE FROM last_teams")
         self.conn.commit()
 
