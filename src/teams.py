@@ -71,7 +71,6 @@ class TeamCreator:
         # Create initial teams
         self.team_1, self.team_2 = self._distribute_players()
         self._apply_team_bonus()
-        self._precompute_valid_swaps()
 
     def _distribute_players(self) -> Tuple[Team, Team]:
         """
@@ -102,18 +101,6 @@ class TeamCreator:
         elif len(self.team_2.players) > len(self.team_1.players):
             self.team_2.bonus = LARGE_TEAM_BOOST
 
-    def _precompute_valid_swaps(self) -> None:
-        """
-        Precomputes and stores only valid swaps between players on opposite teams.
-        """
-        self.swap_heap = []
-        for i, player1 in enumerate(self.team_1.players):
-            for j, player2 in enumerate(self.team_2.players):
-                diff = abs(
-                    player1.get_overall_rating() - player2.get_overall_rating()
-                )
-                heapq.heappush(self.swap_heap, (diff, i, j))
-
     def _swap_players(self, idx1: int, idx2: int) -> None:
         """
         Swaps two players between teams based on their indices.
@@ -131,48 +118,31 @@ class TeamCreator:
             self.team_1.get_overall_rating() - self.team_2.get_overall_rating()
         )
 
-    def _can_improve_balance(self) -> bool:
-        """
-        Determines if further swaps will improve balance.
-        """
-        best_diff_seen = self._team_rating_diff()
-        can_improve = False
-
-        for idx1 in range(len(self.team_1.players)):
-            for idx2 in range(len(self.team_2.players)):
-                self._swap_players(idx1, idx2)
-                new_diff = self._team_rating_diff()
-
-                if new_diff < best_diff_seen:
-                    best_diff_seen = new_diff
-                    can_improve = True
-
-                self._swap_players(idx1, idx2)  # Undo swap
-
-        return can_improve
-
     def _adjust_teams_for_fairness(self) -> None:
         """
-        Adjusts teams iteratively using heap-based swaps to minimize imbalance.
+        Adjusts teams iteratively by trying all swaps and applying the best one.
         """
-        while self._can_improve_balance():
-            idx1, idx2 = self._find_best_swap()
-            if idx1 is None or idx2 is None:
-                break
+        while True:
+            best_swap = None
+            best_diff_seen = self._team_rating_diff()
 
-            self._swap_players(idx1, idx2)
+            # Try all swaps and find the best one
+            for idx1 in range(len(self.team_1.players)):
+                for idx2 in range(len(self.team_2.players)):
+                    self._swap_players(idx1, idx2)
+                    new_diff = self._team_rating_diff()
 
-    def _find_best_swap(self) -> Tuple[Optional[int], Optional[int]]:
-        """
-        Finds the best swap by checking the heap for valid swaps.
-        """
-        while self.swap_heap:
-            _, idx1, idx2 = heapq.heappop(self.swap_heap)
-            if idx1 < len(self.team_1.players) and idx2 < len(
-                self.team_2.players
-            ):
-                return idx1, idx2
-        return None, None
+                    if new_diff < best_diff_seen:
+                        best_diff_seen = new_diff
+                        best_swap = (idx1, idx2)
+
+                    self._swap_players(idx1, idx2)  # Undo swap
+
+            if best_swap is None:
+                break  # No improving swaps left
+
+            # Apply the best swap found
+            self._swap_players(*best_swap)
 
     def create_balanced_teams(self) -> Tuple[Team, Team]:
         """
