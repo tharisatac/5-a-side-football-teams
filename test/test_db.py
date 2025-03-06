@@ -3,7 +3,7 @@ import os
 import pytest
 
 from src.db import DB
-from src.player import Attributes, Player
+from src.player import ATTRIBUTE_WEIGHTS, Attributes, Player
 
 TEST_DB_PATH = "test_football.db"
 
@@ -228,17 +228,20 @@ def test_record_match_without_teams(db):
 def test_overall_rating_calculation(sample_players):
     """
     Tests that the overall rating is calculated correctly.
-    Overall rating = (average attribute score) * (1 + 0.05 * (form - 5))
+    Overall rating =
+        (weighted average attribute score) * (1 + 0.05 * (form - 5))
     """
     player = sample_players[0]
+
     base_rating = (
-        player.attributes.shooting.score
-        + player.attributes.dribbling.score
-        + player.attributes.passing.score
-        + player.attributes.tackling.score
-        + player.attributes.fitness.score
+        player.attributes.shooting.score * ATTRIBUTE_WEIGHTS["shooting"]
+        + player.attributes.dribbling.score * ATTRIBUTE_WEIGHTS["dribbling"]
+        + player.attributes.passing.score * ATTRIBUTE_WEIGHTS["passing"]
+        + player.attributes.tackling.score * ATTRIBUTE_WEIGHTS["tackling"]
+        + player.attributes.fitness.score * ATTRIBUTE_WEIGHTS["fitness"]
         + player.attributes.goalkeeping.score
-    ) / 6
+        * ATTRIBUTE_WEIGHTS["goalkeeping"]
+    )
 
     multiplier = 1 + 0.05 * (player.form - 5)
     expected_overall = base_rating * multiplier
