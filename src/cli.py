@@ -36,8 +36,22 @@ def remove_player(args):
 
 def update_player(args):
     """Updates a player's attribute."""
-    db.update_player_attribute(args.name, args.attribute, args.value)
-    print(f"🔄 Updated {args.attribute} of '{args.name}' to {args.value}.")
+
+    attributes_map = {
+        "s": "shooting",
+        "d": "dribbling",
+        "p": "passing",
+        "t": "tackling",
+        "f": "fitness",
+        "g": "goalkeeping",
+    }
+
+    attribute = args.attribute
+    if args.attribute in attributes_map:
+        attribute = attributes_map[args.attribute]
+
+    db.update_player_attribute(args.name, attribute, args.value)
+    print(f"🔄 Updated {attribute} of '{args.name}' to {args.value}.")
 
 
 def get_player_rating(args):
@@ -50,23 +64,46 @@ def get_player_rating(args):
 
 
 def list_players(args):
-    """Lists all players in the database with all attributes."""
+    """Lists all players in the database with all attributes in a table format."""
     players = db.get_all_players()
 
     if not players:
         print("❌ No players found in the database.")
         return
 
+    # Define the column headers
+    headers = [
+        "Name",
+        "Form",
+        "Shooting",
+        "Dribbling",
+        "Passing",
+        "Tackling",
+        "Fitness",
+        "Goalkeeping",
+    ]
+
+    # Define a format string with fixed widths (adjust widths as needed)
+    format_str = "{:<20} {:<10} {:<10} {:<10} {:<10} {:<10} {:<10} {:<10}"
+
     print("\n📋 **Players in Database:**")
+    # Print the header row
+    print(format_str.format(*headers))
+    print("-" * 100)  # Optional separator line
+
+    # Print each player's data row
     for player in players:
         print(
-            f"- {player['name']} | Form: {player['form']} | "
-            f"Shooting: {player['shooting']} | "
-            f"Dribbling: {player['dribbling']} | "
-            f"Passing: {player['passing']} "
-            f"| Tackling: {player['tackling']} | "
-            f"Fitness: {player['fitness']} "
-            f"| Goalkeeping: {player['goalkeeping']}"
+            format_str.format(
+                player["name"],
+                player["form"],
+                player["shooting"],
+                player["dribbling"],
+                player["passing"],
+                player["tackling"],
+                player["fitness"],
+                player["goalkeeping"],
+            )
         )
 
 
@@ -77,7 +114,8 @@ def create_teams(args):
         print("✅ Teams created successfully!")
         print("\n🏆 **Team 1:**")
         print(
-            f"  Rating: {round(team1.get_overall_rating(),2)} Bonus: {team1.bonus}\n"
+            f"  Rating: {round(team1.get_overall_rating(),2)} "
+            f"Bonus: {team1.bonus}\n"
         )
         for player in team1.players:
             print(
@@ -86,7 +124,8 @@ def create_teams(args):
 
         print("\n🔥 **Team 2:**")
         print(
-            f"  Rating: {round(team2.get_overall_rating(),2)} Bonus: {team2.bonus}\n"
+            f"  Rating: {round(team2.get_overall_rating(),2)} "
+            f"Bonus: {team2.bonus}\n"
         )
         for player in team2.players:
             print(
