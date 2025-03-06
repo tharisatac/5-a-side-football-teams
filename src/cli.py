@@ -1,8 +1,9 @@
 """
-CLI module for managing players, teams, and match results.
+CLI module for managing players, teams, match results, and CSV import/export.
 """
 
 import argparse
+import csv
 import os
 
 from .db import DB
@@ -15,8 +16,11 @@ db = DB(db_name=os.getenv("FOOTBALL_DB", "football.db"))
 # --------------------------
 # Player Command Handlers
 # --------------------------
+
+
 def add_player(args):
     """Adds a new player to the database."""
+
     attributes = Attributes.from_values(
         {
             "shooting": args.shooting,
@@ -179,6 +183,59 @@ def clear_database(args):
     print("🗑️ All data has been removed from the database.")
 
 
+def export_csv(args):
+    """Exports the players table to a CSV file."""
+    filename = args.filename
+    db.cursor.execute(
+        "SELECT id, name, shooting, dribbling, passing, tackling, fitness, goalkeeping, form FROM players"
+    )
+    rows = db.cursor.fetchall()
+    headers = [desc[0] for desc in db.cursor.description]
+    try:
+        with open(filename, mode="w", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow(headers)
+            writer.writerows(rows)
+        print(f"✅ Exported players to '{filename}'.")
+    except Exception as e:
+        print(f"❌ Failed to export CSV: {e}")
+
+
+def import_csv(args):
+    """Imports players from a CSV file into the database."""
+    filename = args.filename
+    try:
+        with open(filename, mode="r", newline="") as f:
+            reader = csv.DictReader(f)
+            count = 0
+            for row in reader:
+                try:
+                    # Create Attributes using the CSV row data.
+                    attributes = {
+                        "shooting": int(row["shooting"]),
+                        "dribbling": int(row["dribbling"]),
+                        "passing": int(row["passing"]),
+                        "tackling": int(row["tackling"]),
+                        "fitness": int(row["fitness"]),
+                        "goalkeeping": int(row["goalkeeping"]),
+                    }
+                    player_attributes = Attributes.from_values(attributes)
+                    player = Player(
+                        name=row["name"],
+                        attributes=player_attributes,
+                        form=int(row["form"]),
+                    )
+                    db.add_player(player)
+                    count += 1
+                except Exception as e:
+                    print(
+                        f"⚠️ Could not import player {row.get('name', '<unknown>')}: {e}"
+                    )
+            print(f"✅ Imported {count} players from '{filename}'.")
+    except FileNotFoundError:
+        print(f"❌ File '{filename}' not found.")
+
+
 # --------------------------
 # Subparser Setup Functions
 # --------------------------
@@ -299,6 +356,30 @@ def setup_database_subparser(subparsers):
         "clear", help="Clear all database data"
     )
     clear_parser.set_defaults(func=clear_database)
+
+    export_parser = database_subparsers.add_parser(
+        "export", help="Export players to a CSV file"
+    )
+    export_parser.add_argument(
+        "filename",
+        type=str,
+        nargs="?",
+        default="players_export.csv",
+        help="Output CSV filename",
+    )
+    export_parser.set_defaults(func=export_csv)
+
+    import_parser = database_subparsers.add_parser(
+        "import", help="Import players from a CSV file"
+    )
+    import_parser.add_argument(
+        "filename",
+        type=str,
+        nargs="?",
+        default="players_import.csv",
+        help="Input CSV filename",
+    )
+    import_parser.set_defaults(func=import_csv)
 
 
 # --------------------------
