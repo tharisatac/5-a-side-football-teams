@@ -200,7 +200,8 @@ def test_get_all_players(db: DB, sample_players: List[Player]) -> None:
     players = db.get_all_players()
     assert len(players) == len(
         sample_players
-    ), "The number of players should match the number of sample players inserted."
+    ), "The number of players should match the number of sample players "
+    "inserted."
 
     player_names = {p["name"] for p in players}
     expected_names = {p.name for p in sample_players}
