@@ -11,27 +11,40 @@ from typing import Dict, List, Optional, Tuple
 from .player import Attributes, Player
 from .teams import Team, TeamCreator
 
+FOOTBALL_DB = "football.db"
+
+
+def with_connection(func):
+    """
+    A decorator that opens a new SQLite connection, passes it to the decorated
+    function, and then ensures the connection is closed.
+    """
+
+    def wrapper(self, *args, **kwargs):
+        with sqlite3.connect(self.db_name) as conn:
+            return func(self, conn, *args, **kwargs)
+
+    return wrapper
+
 
 class DB:
     """
     Manages database interactions for players, teams, and matches.
     """
 
-    def __init__(self, db_name=None):
+    def __init__(self, db_name: Optional[str] = None):
         """
-        Initializes the database connection and creates tables if needed.
+        Initializes the database filename and creates tables if needed.
         """
         self.db_name = db_name or os.getenv("FOOTBALL_DB", "football.db")
-        self.conn = sqlite3.connect(self.db_name)
-        self.cursor = self.conn.cursor()
         self.create_tables()
 
-    def create_tables(self) -> None:
+    @with_connection
+    def create_tables(self, conn) -> None:
         """
         Creates necessary database tables if they do not already exist.
         """
-        self.cursor.executescript(
-            """
+        script = """
         CREATE TABLE IF NOT EXISTS players (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT UNIQUE NOT NULL,
@@ -67,19 +80,19 @@ class DB:
             bonus REAL
         );
         """
-        )
-        self.conn.commit()
+        conn.executescript(script)
 
-    def add_player(self, player: Player) -> Optional[int]:
+    @with_connection
+    def add_player(self, conn, player: Player) -> Optional[int]:
         """
         Adds a new player to the database.
         """
         try:
-            self.cursor.execute(
+            cur = conn.execute(
                 """
-               INSERT INTO players (name, shooting, dribbling, passing, tackling, fitness, goalkeeping, form)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-               """,
+                INSERT INTO players (name, shooting, dribbling, passing, tackling, fitness, goalkeeping, form)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
                 (
                     player.name,
                     player.attributes.shooting.score,
@@ -91,21 +104,21 @@ class DB:
                     player.form,
                 ),
             )
-            self.conn.commit()
-            return self.cursor.lastrowid
+            return cur.lastrowid
         except sqlite3.IntegrityError:
             print(f"Error: Player '{player.name}' already exists.")
             return -1
 
-    def remove_player(self, name: str) -> None:
+    @with_connection
+    def remove_player(self, conn, name: str) -> None:
         """
         Removes a player from the database.
         """
-        self.cursor.execute("DELETE FROM players WHERE name = ?", (name,))
-        self.conn.commit()
+        conn.execute("DELETE FROM players WHERE name = ?", (name,))
 
+    @with_connection
     def update_player_attribute(
-        self, name: str, attribute: str, value: int
+        self, conn, name: str, attribute: str, value: int
     ) -> None:
         """
         Updates a player's attribute.
@@ -123,23 +136,23 @@ class DB:
             print(f"Error: Invalid attribute '{attribute}'.")
             return
 
-        self.cursor.execute(
+        conn.execute(
             f"UPDATE players SET {attribute} = ? WHERE name = ?", (value, name)
         )
-        self.conn.commit()
 
-    def get_player_by_name(self, name: str) -> Optional[Player]:
+    @with_connection
+    def get_player_by_name(self, conn, name: str) -> Optional[Player]:
         """
         Retrieves a player from the database by name.
         """
-        self.cursor.execute(
+        cur = conn.execute(
             """
-        SELECT shooting, dribbling, passing, tackling, fitness, goalkeeping, form
-        FROM players WHERE name = ?
-        """,
+            SELECT shooting, dribbling, passing, tackling, fitness, goalkeeping, form
+            FROM players WHERE name = ?
+            """,
             (name,),
         )
-        row = self.cursor.fetchone()
+        row = cur.fetchone()
 
         if row is None:
             return None
@@ -156,18 +169,18 @@ class DB:
         )
         return Player(name=name, attributes=attributes, form=row[6])
 
-    def get_all_players(self) -> List[Dict]:
+    @with_connection
+    def get_all_players(self, conn) -> List[Dict]:
         """
         Retrieves all players from the database.
         """
-        self.cursor.execute(
+        cur = conn.execute(
             """
-        SELECT name, shooting, dribbling, passing, tackling, fitness,
-               goalkeeping, form FROM players;
-        """
+            SELECT name, shooting, dribbling, passing, tackling, fitness,
+                   goalkeeping, form FROM players;
+            """
         )
-
-        rows = self.cursor.fetchall()
+        rows = cur.fetchall()
         return [
             {
                 "name": row[0],
@@ -182,23 +195,26 @@ class DB:
             for row in rows
         ]
 
-    def reset_player_forms(self) -> None:
+    @with_connection
+    def reset_player_forms(self, conn) -> None:
         """
         Resets all players' forms to the default value (5).
         """
         try:
-            self.cursor.execute("UPDATE players SET form = 5")
-            self.conn.commit()
+            conn.execute("UPDATE players SET form = 5")
             print("✅ All player forms have been reset to 5.")
         except Exception as e:
             print(f"❌ Failed to reset forms: {e}")
 
+    @with_connection
     def create_teams(
-        self, player_names: List[str]
+        self, conn, player_names: List[str]
     ) -> Optional[Tuple[Team, Team]]:
         """
         Creates balanced teams using `TeamCreator` and stores them in the database.
         """
+        # Fetch players outside of the connection context because
+        # get_player_by_name uses its own connection.
         players = [self.get_player_by_name(name) for name in player_names]
         formatted_players = [p for p in players if p]
 
@@ -213,29 +229,27 @@ class DB:
         )
         team1, team2 = team_creator.create_balanced_teams()
 
-        self.cursor.execute("DELETE FROM last_teams")
-
+        conn.execute("DELETE FROM last_teams")
         for player in team1.players:
-            self.cursor.execute(
+            conn.execute(
                 "INSERT INTO last_teams (player_name, team, bonus) VALUES (?, ?, ?)",
                 (player.name, "team1", team1.bonus),
             )
         for player in team2.players:
-            self.cursor.execute(
+            conn.execute(
                 "INSERT INTO last_teams (player_name, team, bonus) VALUES (?, ?, ?)",
                 (player.name, "team2", team2.bonus),
             )
 
-        self.conn.commit()
-
         return team1, team2
 
-    def get_last_teams(self) -> Dict[str, Team]:
+    @with_connection
+    def get_last_teams(self, conn) -> Dict[str, Team]:
         """
         Retrieves the last stored teams from the database.
         """
-        self.cursor.execute("SELECT player_name, team, bonus FROM last_teams")
-        rows = self.cursor.fetchall()
+        cur = conn.execute("SELECT player_name, team, bonus FROM last_teams")
+        rows = cur.fetchall()
 
         team1_players = []
         team2_players = []
@@ -261,9 +275,11 @@ class DB:
             ),
         }
 
-    def record_match_result(self, winning_team: str) -> None:
+    @with_connection
+    def record_match_result(self, conn, winning_team: str) -> None:
         """
-        Records the last match result and updates player form using the custom rating system.
+        Records the last match result and updates player form using the custom
+        rating system.
         """
         teams = self.get_last_teams()
         if not teams["team1"].players or not teams["team2"].players:
@@ -280,33 +296,30 @@ class DB:
         for player in team2.players:
             player.update_form(won=not team1_won)
 
-        # Persist updated form to the database
         for player in team1.players + team2.players:
-            self.cursor.execute(
+            conn.execute(
                 "UPDATE players SET form = ? WHERE name = ?",
                 (player.form, player.name),
             )
 
         winner = 1 if team1_won else 2
-        self.cursor.execute(
+        conn.execute(
             "INSERT INTO matches (team_1_score, team_2_score, winner) VALUES (?, ?, ?)",
             (0, 0, winner),
         )
-
-        self.cursor.execute("DELETE FROM last_teams")
-        self.conn.commit()
-
+        conn.execute("DELETE FROM last_teams")
         print(f"✅ Match recorded! Winning team: {winning_team.capitalize()}")
 
-    def export_to_csv(self, filename: str) -> None:
+    @with_connection
+    def export_to_csv(self, conn, filename: str) -> None:
         """
         Exports the players table to a CSV file.
         """
-        self.cursor.execute(
+        cur = conn.execute(
             "SELECT id, name, shooting, dribbling, passing, tackling, fitness, goalkeeping, form FROM players"
         )
-        rows = self.cursor.fetchall()
-        headers = [desc[0] for desc in self.cursor.description]
+        rows = cur.fetchall()
+        headers = [desc[0] for desc in cur.description]
         try:
             with open(filename, mode="w", newline="") as f:
                 writer = csv.writer(f)
@@ -316,7 +329,8 @@ class DB:
         except Exception as e:
             print(f"❌ Failed to export CSV: {e}")
 
-    def import_from_csv(self, filename: str) -> None:
+    @with_connection
+    def import_from_csv(self, conn, filename: str) -> None:
         """
         Imports players from a CSV file into the database.
         """
@@ -350,19 +364,20 @@ class DB:
         except FileNotFoundError:
             print(f"❌ File '{filename}' not found.")
 
-    def clear_database(self):
+    @with_connection
+    def clear_database(self, conn) -> None:
         """
         Deletes all data from the database, resetting it to an empty state.
         """
-        self.cursor.execute("DELETE FROM players")
-        self.cursor.execute("DELETE FROM matches")
-        self.cursor.execute("DELETE FROM match_players")
-        self.cursor.execute("DELETE FROM last_teams")
-        self.conn.commit()
+        conn.execute("DELETE FROM players")
+        conn.execute("DELETE FROM matches")
+        conn.execute("DELETE FROM match_players")
+        conn.execute("DELETE FROM last_teams")
         print("✅ Database cleared successfully!")
 
     def close(self) -> None:
         """
-        Closes the database connection.
+        This method is retained for compatibility, though no persistent
+        connection exists.
         """
-        self.conn.close()
+        pass
