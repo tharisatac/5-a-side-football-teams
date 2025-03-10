@@ -4,7 +4,7 @@ from typing import Iterator, List
 
 import pytest
 
-from src.db import DB
+from src.db import DB, UnknownPlayerError
 from src.player import ATTRIBUTE_WEIGHTS, Attributes, Player
 
 TEST_DB_PATH = "test_football.db"
@@ -218,6 +218,16 @@ def test_get_nonexistent_player(db: DB) -> None:
     assert (
         player is None
     ), "Retrieving a non-existent player should return None."
+
+
+def test_create_team_with_non_existent_player(db: DB) -> None:
+    """
+    Tests creating a team with an unknown player.
+    """
+    with pytest.raises(UnknownPlayerError) as exc:
+        db.create_teams(["Nonexistent Player"])
+
+    assert ("Unknown player 'Nonexistent Player' passed in.") in str(exc.value)
 
 
 def test_record_match_without_teams(db: DB) -> None:

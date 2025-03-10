@@ -213,19 +213,23 @@ class DB:
         """
         Creates balanced teams using `TeamCreator` and stores them in the database.
         """
-        # Fetch players outside of the connection context because
-        # get_player_by_name uses its own connection.
-        players = [self.get_player_by_name(name) for name in player_names]
-        formatted_players = [p for p in players if p]
+        # Fetch players using the standalone get_player_by_name (which uses its
+        # own connection).
+        players = []
+        for name in player_names:
+            player = self.get_player_by_name(name)
+            if not player:
+                raise UnknownPlayerError(name)
+            players.append(player)
 
-        if len(formatted_players) < 2:
+        if len(players) < 2:
             print("❌ Not enough players to create teams.")
             return None
 
         team_creator = TeamCreator(
-            formatted_players,
-            len(formatted_players) // 2,
-            len(formatted_players) - len(formatted_players) // 2,
+            players,
+            len(players) // 2,
+            len(players) - len(players) // 2,
         )
         team1, team2 = team_creator.create_balanced_teams()
 
@@ -381,3 +385,19 @@ class DB:
         connection exists.
         """
         pass
+
+
+class UnknownPlayerError(Exception):
+    """
+    Raised when an unknown player is passed to create teams.
+    """
+
+    def __init__(self, name: str):
+        """
+        Initializes the UnknownPlayerError.
+
+        :param name:
+            The name of the unknown player.
+        """
+        self.name = name
+        super().__init__(f"Unknown player '{name}' passed in.")

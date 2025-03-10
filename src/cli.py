@@ -5,7 +5,7 @@ CLI module for managing players, teams, match results, and CSV import/export.
 import argparse
 import os
 
-from .db import DB
+from .db import DB, UnknownPlayerError
 from .player import Attributes, Player
 
 # Initialize the database connection.
@@ -199,7 +199,18 @@ def rank_players(args):
 # --------------------------
 def create_teams(args):
     """Creates balanced teams from given player names."""
-    team1, team2 = db.create_teams(args.players)
+    try:
+        teams = db.create_teams(args.players)
+    except UnknownPlayerError as exc:
+        print(f"❌ Error: Unknown player: '{exc.name}'. Check player names.")
+        return
+
+    if teams is None:
+        return
+
+    team1 = teams[0]
+    team2 = teams[1]
+
     if team1 and team2:
         print("✅ Teams created successfully!")
         print("\n🏆 **Team 1:**")
@@ -223,6 +234,7 @@ def create_teams(args):
                 f"- {player.name} (Rating: "
                 f"{player.get_overall_rating(round_num=True)})"
             )
+        print("")
     else:
         print("❌ Error: Could not create teams. Check player names.")
 
