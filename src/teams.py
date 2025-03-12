@@ -4,6 +4,7 @@ teams efficiently. Teams are balanced based on overall player ratings, and if
 one team is smaller, a boost is applied to the larger team.
 """
 
+from collections import Counter
 from typing import List, Tuple
 
 from .player import Player
@@ -63,8 +64,15 @@ class TeamCreator:
         """
         Initializes the TeamCreator with player data and team sizes.
         """
+
         if len(players) != team_1_size + team_2_size:
             raise InvalidTeamSizeError(team_1_size, team_2_size, len(players))
+
+        for player, count in Counter(
+            player.name for player in players
+        ).items():
+            if count == 2:
+                raise DuplicatePlayerError(player)
 
         self.players = players
         self.team_1_size = team_1_size
@@ -157,12 +165,31 @@ class TeamCreator:
         return self.team_1, self.team_2
 
 
+class DuplicatePlayerError(Exception):
+    """
+    Raised when a duplicate player is added during team creation.
+    """
+
+    def __init__(self, name: str) -> None:
+        """
+        Initializes the DuplicatePlayerError.
+
+        :param name:
+            Raised when duplicate players are added when creating teams.
+        """
+        self.name = name
+
+        super().__init__(f"Duplicate player added '{self.name}'")
+
+
 class InvalidTeamSizeError(Exception):
     """
     Raised when the sum of team sizes does not match the number of players.
     """
 
-    def __init__(self, team_1_size: int, team_2_size: int, num_players: int):
+    def __init__(
+        self, team_1_size: int, team_2_size: int, num_players: int
+    ) -> None:
         """
         Initializes the InvalidTeamSizeError.
 

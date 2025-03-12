@@ -9,7 +9,7 @@ import sqlite3
 from typing import Dict, List, Optional, Tuple
 
 from .player import Attributes, Player
-from .teams import Team, TeamCreator
+from .teams import InvalidTeamSizeError, Team, TeamCreator
 
 FOOTBALL_DB = "football.db"
 
@@ -133,8 +133,7 @@ class DB:
             "form",
         ]
         if attribute not in valid_attributes:
-            print(f"Error: Invalid attribute '{attribute}'.")
-            return
+            raise InvalidAttrError(attribute)
 
         conn.execute(
             f"UPDATE players SET {attribute} = ? WHERE name = ?", (value, name)
@@ -226,11 +225,15 @@ class DB:
             print("❌ Not enough players to create teams.")
             return None
 
-        team_creator = TeamCreator(
-            players,
-            len(players) // 2,
-            len(players) - len(players) // 2,
-        )
+        try:
+            team_creator = TeamCreator(
+                players,
+                len(players) // 2,
+                len(players) - len(players) // 2,
+            )
+        except InvalidTeamSizeError as exc:
+            print("❌ Not enough players to create teams.")
+
         team1, team2 = team_creator.create_balanced_teams()
 
         conn.execute("DELETE FROM last_teams")
@@ -385,6 +388,23 @@ class DB:
         connection exists.
         """
         pass
+
+
+class InvalidAttrError(Exception):
+    """
+    Raised when an invalid attribute is passed in.
+    """
+
+    def __init__(self, attr: str):
+        """
+        Initializes the InvalidAttrError.
+
+        :param attr:
+            The invalid attribute.
+
+        """
+        self.attr = attr
+        super().__init__(f"Invalid attribute '{attr}' passed in.")
 
 
 class UnknownPlayerError(Exception):

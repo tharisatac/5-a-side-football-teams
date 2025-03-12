@@ -153,7 +153,7 @@ def rank_players(args):
                 # Dynamically retrieve the attribute score.
                 attr_obj = getattr(player.attributes, title.lower())
                 score = attr_obj.get_score()
-            print(f"{i}. {player.name} - {title}: {score:.2f}")
+            print(f"{i}. {player.name}: {score:.2f}")
 
     # If no attribute is provided, default to showing all rankings.
     if not args.attribute:

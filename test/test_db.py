@@ -4,18 +4,19 @@ from typing import Iterator, List
 
 import pytest
 
-from src.db import DB, UnknownPlayerError
+import src.db as src_db
+import src.teams as src_teams
 from src.player import ATTRIBUTE_WEIGHTS, Attributes, Player
 
 TEST_DB_PATH = "test_football.db"
 
 
 @pytest.fixture(scope="function")
-def db() -> Iterator[DB]:
+def test_db() -> Iterator[src_db.DB]:
     """
     Creates a temporary test database for testing.
     """
-    test_db = DB(db_name=TEST_DB_PATH)  # Use test DB
+    test_db = src_db.DB(db_name=TEST_DB_PATH)  # Use test DB
     yield test_db  # Run the test
 
     test_db.clear_database()
@@ -72,17 +73,17 @@ def sample_players() -> List[Player]:
     ]
 
 
-def test_add_player(db: DB, sample_players: List[Player]) -> None:
+def test_add_player(test_db: src_db.DB, sample_players: List[Player]) -> None:
     """
     Tests adding a player to the database.
     """
-    player_id = db.add_player(sample_players[0])
+    player_id = test_db.add_player(sample_players[0])
     assert (
         player_id is not None
     ), "Player ID should not be None after insertion."
 
     # Retrieve the player via the DB API.
-    player = db.get_player_by_name(sample_players[0].name)
+    player = test_db.get_player_by_name(sample_players[0].name)
     assert player is not None, "Player should exist in the database."
     assert player.name == sample_players[0].name, "Player name mismatch."
     assert (
@@ -91,26 +92,30 @@ def test_add_player(db: DB, sample_players: List[Player]) -> None:
     ), "Shooting attribute mismatch."
 
 
-def test_remove_player(db: DB, sample_players: List[Player]) -> None:
+def test_remove_player(
+    test_db: src_db.DB, sample_players: List[Player]
+) -> None:
     """
     Tests removing a player from the database.
     """
-    db.add_player(sample_players[0])
-    db.remove_player(sample_players[0].name)
+    test_db.add_player(sample_players[0])
+    test_db.remove_player(sample_players[0].name)
 
     # Verify removal via the DB API.
-    player = db.get_player_by_name(sample_players[0].name)
+    player = test_db.get_player_by_name(sample_players[0].name)
     assert player is None, "Player should be removed from the database."
 
 
-def test_update_player_attribute(db: DB, sample_players: List[Player]) -> None:
+def test_update_player_attribute(
+    test_db: src_db.DB, sample_players: List[Player]
+) -> None:
     """
     Tests updating a player's attribute.
     """
-    db.add_player(sample_players[0])
-    db.update_player_attribute(sample_players[0].name, "shooting", 9)
+    test_db.add_player(sample_players[0])
+    test_db.update_player_attribute(sample_players[0].name, "shooting", 9)
 
-    player = db.get_player_by_name(sample_players[0].name)
+    player = test_db.get_player_by_name(sample_players[0].name)
     assert (
         player is not None
     ), "Player should be retrievable from the database."
@@ -118,33 +123,53 @@ def test_update_player_attribute(db: DB, sample_players: List[Player]) -> None:
         player.attributes.shooting.score == 9
     ), "Shooting attribute should be updated to 9."
 
+    # Test that an error is raised if an invalid attribute is passed in.
+    with pytest.raises(src_db.InvalidAttrError) as exc:
+        test_db.update_player_attribute(
+            sample_players[0].name, "invalid-attr", 9
+        )
 
-def test_create_teams(db: DB, sample_players: List[Player]) -> None:
+    assert ("Invalid attribute 'invalid-attr' passed in.") in str(exc.value)
+
+
+def test_create_teams(
+    test_db: src_db.DB, sample_players: List[Player]
+) -> None:
     """
     Tests creating balanced teams from player names.
     """
     for player in sample_players:
-        db.add_player(player)
+        test_db.add_player(player)
 
-    teams = db.create_teams(["Player 1", "Player 2", "Player 3", "Player 4"])
+    teams = test_db.create_teams(
+        ["Player 1", "Player 2", "Player 3", "Player 4"]
+    )
     assert teams is not None, "Teams should be created."
 
     team1, team2 = teams
     assert len(team1.players) == 2, "Team 1 should have 2 players."
     assert len(team2.players) == 2, "Team 2 should have 2 players."
 
+    # Test that an error is raised if duplicate players are added.
+    with pytest.raises(src_teams.DuplicatePlayerError) as exc:
+        test_db.create_teams(["Player 1", "Player 1"])
 
-def test_record_match_result(db: DB, sample_players: List[Player]) -> None:
+    assert "Duplicate player added 'Player 1'" in str(exc.value)
+
+
+def test_record_match_result(
+    test_db: src_db.DB, sample_players: List[Player]
+) -> None:
     """
     Tests recording a match result and updating player form.
     Winners should have their form increased and losers decreased.
     """
     for player in sample_players:
-        db.add_player(player)
+        test_db.add_player(player)
 
     # Create teams and retrieve their allocations.
-    db.create_teams(["Player 1", "Player 2", "Player 3", "Player 4"])
-    teams = db.get_last_teams()
+    test_db.create_teams(["Player 1", "Player 2", "Player 3", "Player 4"])
+    teams = test_db.get_last_teams()
 
     # Validate team structure.
     assert (
@@ -157,10 +182,10 @@ def test_record_match_result(db: DB, sample_players: List[Player]) -> None:
     winning_team = "team1"
     losing_team = "team2"
 
-    db.record_match_result(winning_team)
+    test_db.record_match_result(winning_team)
 
     for player in teams[winning_team].players:
-        updated_player = db.get_player_by_name(player.name)
+        updated_player = test_db.get_player_by_name(player.name)
         assert (
             updated_player is not None
         ), f"Player {player.name} should exist."
@@ -169,7 +194,7 @@ def test_record_match_result(db: DB, sample_players: List[Player]) -> None:
         ), f"Expected form 6 for {player.name}, got {updated_player.form}"
 
     for player in teams[losing_team].players:
-        updated_player = db.get_player_by_name(player.name)
+        updated_player = test_db.get_player_by_name(player.name)
         assert (
             updated_player is not None
         ), f"Player {player.name} should exist."
@@ -178,26 +203,30 @@ def test_record_match_result(db: DB, sample_players: List[Player]) -> None:
         ), f"Expected form 4 for {player.name}, got {updated_player.form}"
 
 
-def test_get_player_by_name(db: DB, sample_players: List[Player]) -> None:
+def test_get_player_by_name(
+    test_db: src_db.DB, sample_players: List[Player]
+) -> None:
     """
     Tests retrieving a player from the database by name.
     """
-    db.add_player(sample_players[0])
-    player = db.get_player_by_name(sample_players[0].name)
+    test_db.add_player(sample_players[0])
+    player = test_db.get_player_by_name(sample_players[0].name)
     assert player is not None, "Player should be retrieved by name."
     assert (
         player.name == sample_players[0].name
     ), "Retrieved player's name should match."
 
 
-def test_get_all_players(db: DB, sample_players: List[Player]) -> None:
+def test_get_all_players(
+    test_db: src_db.DB, sample_players: List[Player]
+) -> None:
     """
     Tests retrieving all players from the database.
     """
     for player in sample_players:
-        db.add_player(player)
+        test_db.add_player(player)
 
-    players = db.get_all_players()
+    players = test_db.get_all_players()
     assert len(players) == len(
         sample_players
     ), "The number of players should match the number of sample players "
@@ -210,31 +239,31 @@ def test_get_all_players(db: DB, sample_players: List[Player]) -> None:
     ), "Player names in DB should match the sample players."
 
 
-def test_get_nonexistent_player(db: DB) -> None:
+def test_get_nonexistent_player(test_db: src_db.DB) -> None:
     """
     Tests retrieving a non-existent player.
     """
-    player = db.get_player_by_name("Nonexistent Player")
+    player = test_db.get_player_by_name("Nonexistent Player")
     assert (
         player is None
     ), "Retrieving a non-existent player should return None."
 
 
-def test_create_team_with_non_existent_player(db: DB) -> None:
+def test_create_team_with_non_existent_player(test_db: src_db.DB) -> None:
     """
     Tests creating a team with an unknown player.
     """
-    with pytest.raises(UnknownPlayerError) as exc:
-        db.create_teams(["Nonexistent Player"])
+    with pytest.raises(src_db.UnknownPlayerError) as exc:
+        test_db.create_teams(["Nonexistent Player"])
 
     assert ("Unknown player 'Nonexistent Player' passed in.") in str(exc.value)
 
 
-def test_record_match_without_teams(db: DB) -> None:
+def test_record_match_without_teams(test_db: src_db.DB) -> None:
     """
     Tests trying to record a match without existing teams.
     """
-    db.record_match_result("team1")
+    test_db.record_match_result("team1")
     # Verify that no match is recorded by opening a connection locally.
     with sqlite3.connect(TEST_DB_PATH) as connection:
         cur = connection.execute("SELECT COUNT(*) FROM matches")
