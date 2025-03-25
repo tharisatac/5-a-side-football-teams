@@ -1,0 +1,20 @@
+[tool.black]
+line-length = 79
+include = '\.pyi?$'  # Include .py and .pyi files
+exclude = '''
+/(
+    \.git
+  | \.mypy_cache
+  | \.pyproject.toml
+  | \.setup_venv.sh
+  | \.requirements.txt
+  | \.tox
+  | \.venv
+  | dist
+)/
+'''
+
+[tool.isort]
+profile = "black"
+line_length = 79
+
