@@ -1,6 +1,6 @@
 """
-This module defines the `Team` class and `TeamCreator` for creating balanced 
-teams efficiently. Teams are balanced based on overall player ratings, and if 
+This module defines the `Team` class and `TeamCreator` for creating balanced
+teams efficiently. Teams are balanced based on overall player ratings, and if
 one team is smaller, a boost is applied to the larger team.
 """
 
@@ -9,7 +9,8 @@ from typing import List, Tuple
 from .player import Player
 
 LARGE_TEAM_BOOST = 1.2
-
+TEAM1 = "team1"
+TEAM2 = "team2"
 
 class Team:
     """

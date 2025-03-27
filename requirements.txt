@@ -5,4 +5,5 @@ mypy==0.971
 isort==5.10.1
 
 # Python Modules
+colorama==0.4.6
 pytest==7.2.2

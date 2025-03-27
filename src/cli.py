@@ -3,14 +3,17 @@ CLI module for managing players, teams, match results, and CSV import/export.
 """
 
 import argparse
+import colorama
 import os
+from . import teams
 
 from .db import DB
 from .player import Attributes, Player
 
+DEFAULT_FILENAME = "players.csv"
+
 # Initialize the database connection.
 db = DB(db_name=os.getenv("FOOTBALL_DB", "football.db"))
-
 
 # --------------------------
 # Player Command Handlers
@@ -31,7 +34,11 @@ def add_player(args):
         }
     )
     player = Player(name=args.name, attributes=attributes, form=5)
-    db.add_player(player)
+    try:
+        db.add_player(player)
+    except ValueError as e:
+        print(f"❌ Error: {e}")
+        return None
     print(f"✅ Player '{args.name}' added!")
 
 
@@ -52,7 +59,11 @@ def update_player(args):
         "g": "goalkeeping",
     }
     attribute = attributes_map.get(args.attribute, args.attribute)
-    db.update_player_attribute(args.name, attribute, args.value)
+    try:
+        db.update_player_attribute(args.name, attribute, args.value)
+    except ValueError as e:
+        print(f"❌ Error: {e}")
+        return
     print(f"🔄 Updated {attribute} of '{args.name}' to {args.value}.")
 
 
@@ -182,12 +193,28 @@ def rank_players(args):
             )
 
 
+def reset_player_forms():
+    """Resets all player forms to the default value of 5."""
+    try:
+        db.reset_player_forms()
+        print("✅ Player forms reset to default value of 5.")
+    except Exception as e:
+        print(f"❌ Error resetting player forms: {e}")
+
+
 # --------------------------
 # Team Command Handlers
 # --------------------------
+
+
 def create_teams(args):
     """Creates balanced teams from given player names."""
-    team1, team2 = db.create_teams(args.players)
+    try:
+        team1, team2 = db.create_teams(args.players)
+    except ValueError as e:
+        print(f"❌ Error: {e}")
+        return
+
     if team1 and team2:
         print("✅ Teams created successfully!")
         print("\n🏆 **Team 1:**")
@@ -257,25 +284,39 @@ def get_team_rating(args):
 # --------------------------
 # Database Command Handlers
 # --------------------------
+
+
 def clear_database(args):
     """Clears all players, matches, and team history from the database."""
     db.clear_database()
-    print("🗑️ All data has been removed from the database.")
+    print("✅ Database cleared successfully!")
 
 
 def export_csv(args):
     """Exports the players table to a CSV file."""
-    db.export_to_csv(args.filename)
+    try:
+        db.export_to_csv(args.filename)
+        print(f"✅ Exported players to '{args.filename}'.")
+    except Exception as e:
+        print(f"❌ Error exporting players: {e}")
 
 
 def import_csv(args):
     """Imports players from a CSV file into the database."""
-    db.import_from_csv(args.filename)
+    try:
+        count = db.import_from_csv(args.filename)
+        print(f"✅ Imported {count} players from '{args.filename}'.")
+    except FileNotFoundError:
+        print(f"❌ File '{args.filename}' not found.")
+    except Exception as e:
+        print(f"❌ Error importing players: {e}")
 
 
 # --------------------------
 # Subparser Setup Functions
 # --------------------------
+
+
 def setup_player_subparser(subparsers):
     player_parser = subparsers.add_parser("player", help="Manage players")
     player_subparsers = player_parser.add_subparsers(
@@ -329,7 +370,7 @@ def setup_player_subparser(subparsers):
     reset_parser = player_subparsers.add_parser(
         "reset_forms", help="Reset all player forms to default (5)"
     )
-    reset_parser.set_defaults(func=lambda args: db.reset_player_forms())
+    reset_parser.set_defaults(func=reset_player_forms)
 
     update_parser = player_subparsers.add_parser(
         "update", help="Update a player's skill"
@@ -381,7 +422,7 @@ def setup_team_subparser(subparsers):
         "result", help="Record match result"
     )
     result_parser.add_argument(
-        "winning_team", choices=["team1", "team2"], help="Winning team"
+        "winning_team", choices=[teams.TEAM1, teams.TEAM2], help="Winning team"
     )
     result_parser.set_defaults(func=record_match_result)
 
@@ -389,7 +430,7 @@ def setup_team_subparser(subparsers):
         "attributes", help="Get team attribute ratings"
     )
     attr_parser.add_argument(
-        "team", choices=["team1", "team2"], help="Select team"
+        "team", choices=[teams.TEAM1, teams.TEAM2], help="Select team"
     )
     attr_parser.set_defaults(func=get_team_attributes)
 
@@ -397,7 +438,7 @@ def setup_team_subparser(subparsers):
         "rating", help="Get overall team rating"
     )
     rating_parser.add_argument(
-        "team", choices=["team1", "team2"], help="Select team"
+        "team", choices=[teams.TEAM1, teams.TEAM2], help="Select team"
     )
     rating_parser.set_defaults(func=get_team_rating)
 
@@ -420,7 +461,7 @@ def setup_database_subparser(subparsers):
         "filename",
         type=str,
         nargs="?",
-        default="players_export.csv",
+        default=DEFAULT_FILENAME,
         help="Output CSV filename",
     )
     export_parser.set_defaults(func=export_csv)
@@ -432,25 +473,369 @@ def setup_database_subparser(subparsers):
         "filename",
         type=str,
         nargs="?",
-        default="players_import.csv",
+        default=DEFAULT_FILENAME,
         help="Input CSV filename",
     )
     import_parser.set_defaults(func=import_csv)
 
 
 # --------------------------
+# Interactive Functions
+# --------------------------
+
+def prompt_input(message, options=None):
+    """Helper function to prompt user input with options."""
+    options_text = f" ({'/'.join(options)})" if options else ""
+    return (
+        input(
+            f"{colorama.Fore.GREEN}{message}{colorama.Fore.YELLOW}{options_text}: "
+            f"{colorama.Fore.RESET}"
+        )
+        .strip()
+        .lower()
+    )
+
+
+def validate_input(prompt, validation_func, error_message):
+    """Validates input using a validation function."""
+    while True:
+        try:
+            value = validation_func(input(prompt).strip())
+            return value
+        except ValueError:
+            print(f"{colorama.Fore.RED}{error_message}")
+
+
+def execute_command(command, command_map, error_message):
+    """Executes a command from a command map."""
+    if command in command_map:
+        command_map[command]()
+    else:
+        print(f"{colorama.Fore.RED}{error_message}")
+
+
+# --------------------------
+#  Interactive Player Functions
+# --------------------------
+
+
+def add_player_interactive():
+    """ Interactive function to add a player to the database. """
+    player_name = prompt_input("Enter player name")
+    skills = {
+        skill: get_skill_input(skill)
+        for skill in [
+            "shooting",
+            "dribbling",
+            "passing",
+            "tackling",
+            "fitness",
+            "goalkeeping",
+        ]
+    }
+    add_player(argparse.Namespace(name=player_name, **skills))
+
+
+def update_player_interactive():
+    """ Interactive function to update a player's attribute. """
+    player_name = prompt_input("Enter player name to update")
+    attribute = prompt_input(
+        "Enter attribute to update",
+        [
+            "shooting",
+            "dribbling",
+            "passing",
+            "tackling",
+            "fitness",
+            "goalkeeping",
+        ],
+    )
+    value = validate_input(
+        f"{colorama.Fore.YELLOW}Enter new value for {attribute} (1-10): "
+        f"{colorama.Fore.RESET}",
+        lambda x: int(x) if 1 <= int(x) <= 10 else ValueError,
+        "Invalid input. Please enter a number between 1 and 10.",
+    )
+    update_player(
+        argparse.Namespace(name=player_name, attribute=attribute, value=value)
+    )
+
+
+def handle_player_interactive():
+    """ Interactive function to handle player commands. """
+    command_map = {
+        "add": add_player_interactive,
+        "a": add_player_interactive,
+        "remove": lambda: remove_player(
+            argparse.Namespace(
+                name=prompt_input("Enter player name to remove")
+            )
+        ),
+        "r": lambda: remove_player(
+            argparse.Namespace(
+                name=prompt_input("Enter player name to remove")
+            )
+        ),
+        "reset_forms": lambda: reset_player_forms(argparse.Namespace()),
+        "reset": lambda: reset_player_forms(argparse.Namespace()),
+        "update": update_player_interactive,
+        "u": update_player_interactive,
+        "attributes": lambda: list_player_attributes(
+            argparse.Namespace(
+                name=prompt_input("Enter player name to view attributes")
+            )
+        ),
+        "attr": lambda: list_player_attributes(
+            argparse.Namespace(
+                name=prompt_input("Enter player name to view attributes")
+            )
+        ),
+        "list": lambda: list_players(argparse.Namespace()),
+        "l": lambda: list_players(argparse.Namespace()),
+        "rank": lambda: rank_players(
+            argparse.Namespace(
+                attribute=prompt_input(
+                    "Enter attribute to rank by",
+                    [
+                        "overall",
+                        "shooting",
+                        "dribbling",
+                        "passing",
+                        "tackling",
+                        "fitness",
+                        "goalkeeping",
+                    ],
+                )
+            )
+        ),
+    }
+    while True:
+        try:
+            player_command = prompt_input(
+                "Enter player command",
+                [
+                    "add(a)",
+                    "remove(r)",
+                    "reset_forms(reset)",
+                    "update(u)",
+                    "attributes(attr)",
+                    "list(l)",
+                    "rank",
+                    "back(b)",
+                ],
+            )
+            if player_command in ["back", "b"]:
+                break
+            execute_command(
+                player_command,
+                command_map,
+                "Invalid player command. Please try again.",
+            )
+        except Exception as e:
+            print(f"{colorama.Fore.RED}An error occurred: {e}")
+
+
+# --------------------------
+# Interactive Team Functions
+# --------------------------
+
+
+def handle_team_interactive():
+    """ Interactive function to handle team commands. """
+    command_map = {
+        "create": lambda: create_teams(
+            argparse.Namespace(
+                players=prompt_input(
+                    "Enter player names separated by spaces"
+                ).split()
+            )
+        ),
+        "c": lambda: create_teams(
+            argparse.Namespace(
+                players=prompt_input(
+                    "Enter player names separated by spaces"
+                ).split()
+            )
+        ),
+        "result": lambda: record_match_result(
+            argparse.Namespace(
+                winning_team=prompt_input(
+                    "Enter winning team", [teams.TEAM1, teams.TEAM2]
+                )
+            )
+        ),
+        "res": lambda: record_match_result(
+            argparse.Namespace(
+                winning_team=prompt_input(
+                    "Enter winning team", [teams.TEAM1, teams.TEAM2]
+                )
+            )
+        ),
+        "attributes": lambda: get_team_attributes(
+            argparse.Namespace(
+                team=prompt_input(
+                    "Select team for attributes", [teams.TEAM1, teams.TEAM2]
+                )
+            )
+        ),
+        "attr": lambda: get_team_attributes(
+            argparse.Namespace(
+                team=prompt_input(
+                    "Select team for attributes", [teams.TEAM1, teams.TEAM2]
+                )
+            )
+        ),
+        "rating": lambda: get_team_rating(
+            argparse.Namespace(
+                team=prompt_input(
+                    "Select team for rating", [teams.TEAM1, teams.TEAM2]
+                )
+            )
+        ),
+        "r": lambda: get_team_rating(
+            argparse.Namespace(
+                team=prompt_input(
+                    "Select team for rating", [teams.TEAM1, teams.TEAM2]
+                )
+            )
+        ),
+    }
+    while True:
+        try:
+            team_command = prompt_input(
+                "Enter team command",
+                [
+                    "create(c)",
+                    "result(res)",
+                    "attributes(attr)",
+                    "rating(r)",
+                    "back(b)",
+                ],
+            )
+            if team_command in ["back", "b"]:
+                break
+            execute_command(
+                team_command,
+                command_map,
+                "Invalid team command. Please try again.",
+            )
+        except Exception as e:
+            print(f"{colorama.Fore.RED}An error occurred: {e}")
+
+
+# --------------------------
+# Interactive Database Functions
+# --------------------------
+
+
+def handle_database_interactive():
+    """ Handle interactive database commands. """
+    command_map = {
+        "clear": lambda: clear_database(argparse.Namespace()),
+        "c": lambda: clear_database(argparse.Namespace()),
+        "export": lambda: export_csv(
+            argparse.Namespace(
+                filename=prompt_input("Enter filename for export")
+                or DEFAULT_FILENAME
+            )
+        ),
+        "e": lambda: export_csv(
+            argparse.Namespace(
+                filename=prompt_input("Enter filename for export")
+                or DEFAULT_FILENAME
+            )
+        ),
+        "import": lambda: import_csv(
+            argparse.Namespace(
+                filename=prompt_input("Enter filename for import")
+                or DEFAULT_FILENAME
+            )
+        ),
+        "i": lambda: import_csv(
+            argparse.Namespace(
+                filename=prompt_input("Enter filename for import")
+                or DEFAULT_FILENAME
+            )
+        ),
+    }
+    while True:
+        try:
+            database_command = prompt_input(
+                "Enter database command",
+                ["clear(c)", "export(e)", "import(i)", "back(b)"],
+            )
+            if database_command in ["back", "b"]:
+                break
+            execute_command(
+                database_command,
+                command_map,
+                "Invalid database command. Please try again.",
+            )
+        except Exception as e:
+            print(f"{colorama.Fore.RED}An error occurred: {e}")
+
+
+# --------------------------
+# Interactive Skill Input Function
+# --------------------------
+
+
+def get_skill_input(skill_name):
+    """ Get a skill input from the user. """
+    return validate_input(
+        f"{colorama.Fore.YELLOW}Enter {skill_name} skill (1-10): "
+        f"{colorama.Fore.RESET}",
+        lambda x: int(x) if 1 <= int(x) <= 10 else ValueError,
+        "Invalid input. Please enter a number between 1 and 10.",
+    )
+
+
+# --------------------------
 # Main CLI Entry Point
 # --------------------------
+
+
 def main():
-    parser = argparse.ArgumentParser(description="Football Team Manager CLI")
-    subparsers = parser.add_subparsers(dest="command", required=True)
+    try:
+        parser = argparse.ArgumentParser(
+            description="Football Team Manager CLI"
+        )
+        subparsers = parser.add_subparsers(dest="command", required=False)
 
-    setup_player_subparser(subparsers)
-    setup_team_subparser(subparsers)
-    setup_database_subparser(subparsers)
+        # Setup subparsers for different commands
+        setup_player_subparser(subparsers)
+        setup_team_subparser(subparsers)
+        setup_database_subparser(subparsers)
 
-    args = parser.parse_args()
-    args.func(args)
+        args = parser.parse_args()
+
+        if args.command:
+            args.func(args)
+        else:
+            while True:
+                print(
+                    f"\n{colorama.Fore.CYAN}Welcome to the Football Team Creator!"
+                )
+                command = prompt_input(
+                    "Enter command",
+                    ["player(p)", "team(t)", "database(d)", "exit"],
+                )
+
+                if command in ["player", "p"]:
+                    handle_player_interactive()
+                elif command in ["team", "t"]:
+                    handle_team_interactive()
+                elif command in ["database", "d"]:
+                    handle_database_interactive()
+                elif command == "exit":
+                    print(f"{colorama.Fore.RED}Exiting the program.")
+                    break
+                else:
+                    print(
+                        f"{colorama.Fore.RED}Invalid command. Please try again."
+                    )
+    except Exception as e:
+        print(f"{colorama.Fore.RED}An error occurred: {e}")
 
 
 if __name__ == "__main__":

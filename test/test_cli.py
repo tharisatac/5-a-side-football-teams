@@ -4,6 +4,8 @@ import subprocess
 
 import pytest
 
+from src import teams
+
 CLI_COMMAND = "./run"
 TEST_DB_PATH = "test_football.db"
 
@@ -201,7 +203,7 @@ def test_get_team_attributes(reset_database):
     for player in players:
         add_player_cli(player, 7, 7, 7, 7, 7, 7)
     run_cli_command(["teams", "create"] + players)
-    result = run_cli_command(["teams", "attributes", "team1"])
+    result = run_cli_command(["teams", "attributes", teams.TEAM1])
     assert "📊 **Team1 Attributes:**" in result.stdout
     assert "Shooting:" in result.stdout
 
@@ -214,8 +216,8 @@ def test_record_match_result(reset_database):
     for player in players:
         add_player_cli(player, 7, 7, 7, 7, 7, 7)
     run_cli_command(["teams", "create"] + players)
-    result = run_cli_command(["teams", "result", "team1"])
-    assert "✅ Match recorded: team1 won!" in result.stdout
+    result = run_cli_command(["teams", "result", teams.TEAM1])
+    assert f"✅ Match recorded: {teams.TEAM1} won!" in result.stdout
 
 
 def test_export_csv(tmp_path, reset_database):
@@ -277,3 +279,36 @@ def test_import_csv(tmp_path, reset_database):
     result = run_cli_command(["player", "list"])
     assert "Imported Player 1" in result.stdout
     assert "Imported Player 2" in result.stdout
+
+
+def test_invalid_command(reset_database):
+    """
+    Tests executing an invalid command.
+    """
+    with pytest.raises(subprocess.CalledProcessError):
+        run_cli_command(["invalid_command"])
+
+
+def test_persistence_after_clear(reset_database):
+    """
+    Tests that clearing the database removes all entries.
+    """
+    add_player_cli("TestPlayer", 8, 7, 9, 6, 9, 5)
+    run_cli_command(["database", "clear"])
+    result = run_cli_command(["player", "list"])
+    assert "❌ No players found" in result.stdout
+
+
+def test_import_invalid_csv(tmp_path, reset_database):
+    """
+    Tests importing from a CSV with invalid data format.
+    """
+    import_file = tmp_path / "invalid_import.csv"
+    headers = ["id", "name", "shooting", "dribbling", "passing"]
+    data = [["", "Invalid Player", "11", "7", "8"]]
+    with open(import_file, "w", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(headers)
+        writer.writerows(data)
+    result = run_cli_command(["database", "import", str(import_file)])
+    assert "❌ Error" in result.stdout
