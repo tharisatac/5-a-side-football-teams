@@ -221,7 +221,7 @@ def get_team_attributes(args):
     """Displays the attribute ratings of the last generated team."""
     teams = db.get_last_teams()
     team_key = args.team
-    if not teams[team_key]:
+    if not teams[team_key].players:
         print(f"❌ No previous team '{team_key}' found.")
         return
 
@@ -245,7 +245,7 @@ def get_team_rating(args):
     """Displays the overall team rating of the last generated team."""
     teams = db.get_last_teams()
     team = teams[args.team]
-    if not team:
+    if not team.players:
         print(f"❌ No previous team '{args.team}' found.")
         return
     overall_rating = team.get_overall_rating()

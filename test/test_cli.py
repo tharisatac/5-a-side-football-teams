@@ -277,3 +277,15 @@ def test_import_csv(tmp_path, reset_database):
     result = run_cli_command(["player", "list"])
     assert "Imported Player 1" in result.stdout
     assert "Imported Player 2" in result.stdout
+
+
+def test_get_team_attributes_no_previous_team(reset_database):
+    """Ensure friendly message when requesting attributes with no teams."""
+    result = run_cli_command(["teams", "attributes", "team1"])
+    assert "No previous team 'team1' found" in result.stdout
+
+
+def test_get_team_rating_no_previous_team(reset_database):
+    """Ensure friendly message when requesting rating with no teams."""
+    result = run_cli_command(["teams", "rating", "team1"])
+    assert "No previous team 'team1' found" in result.stdout
