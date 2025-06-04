@@ -136,6 +136,8 @@ def test_update_player(reset_database):
         ["player", "update", "TestPlayer", "shooting", "95"]
     )
     assert "🔄 Updated shooting of 'TestPlayer' to 95." in result.stdout
+    attr_result = run_cli_command(["player", "attributes", "TestPlayer"])
+    assert "95" in attr_result.stdout
 
 
 def test_rank_players_all(reset_database):

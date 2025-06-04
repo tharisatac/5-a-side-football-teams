@@ -1,7 +1,7 @@
 """
-This module defines the Player and Attributes classes for managing player 
-info, including their attributes such as shooting, dribbling, passing, tackling, 
-fitness, and goalkeeping. The overall rating is calculated based on attributes 
+This module defines the Player and Attributes classes for managing player
+info, including their attributes such as shooting, dribbling, passing, tackling,
+fitness, and goalkeeping. The overall rating is calculated based on attributes
 and current form.
 """
 
@@ -43,9 +43,9 @@ class PlayerAttribute:
     def __post_init__(self):
         if not isinstance(self.score, (int, float)):
             raise ValueError(f"Invalid score: {self.score}. Must be numeric.")
-        if not (1 <= self.score <= 10):
+        if not (1 <= self.score <= 100):
             raise ValueError(
-                f"Invalid score: {self.score}. Must be between 1 and 10."
+                f"Invalid score: {self.score}. Must be between 1 and 100."
             )
 
     def get_score(self) -> float:
