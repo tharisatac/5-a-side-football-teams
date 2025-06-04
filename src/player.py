@@ -151,7 +151,7 @@ class Player:
 
         The multiplier is 1 + 0.05 * (form - 5). That is, form 5 is neutral.
 
-        :param round:
+        :param round_num:
             Whether to round to 2 decimals. This should only be True if
             outputting to the end user.
 
