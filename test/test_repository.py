@@ -202,87 +202,6 @@ def test_get_latest_match(repo, stored_players):
     assert latest.id == latest_id
 
 
-def test_record_result(repo, stored_players):
-    """
-    Tests that the winner is saved, winners' form goes up and losers' goes
-    down, and the match's snapshot keeps the forms from when it was created.
-    """
-    match_id = repo.create_match(
-        Team(stored_players[:2]), Team(stored_players[2:])
-    )
-
-    repo.record_result(match_id, "team1", 1)
-
-    match = repo.get_match(match_id)
-    assert match is not None
-    assert match.winner == "team1"
-    assert [p.form for p in match.team1.players] == [5, 5]
-    forms = {p.name: p.form for p in repo.list_players()}
-    assert forms == {
-        "Player 1": 6,
-        "Player 2": 6,
-        "Player 3": 4,
-        "Player 4": 4,
-    }
-
-
-def test_record_result_keeps_form_in_range(repo, stored_players):
-    """
-    Tests that form doesn't go above 10 for a winner or below 0 for a loser.
-    """
-    repo.update_player("Player 1", {"form": 10})
-    repo.update_player("Player 3", {"form": 0})
-    match_id = repo.create_match(
-        Team(stored_players[:2]), Team(stored_players[2:])
-    )
-
-    repo.record_result(match_id, "team1", 1)
-
-    assert repo.get_player("Player 1").form == 10
-    assert repo.get_player("Player 3").form == 0
-
-
-def test_record_same_result_twice(repo, stored_players):
-    """
-    Tests that saving the same winner again succeeds without touching any
-    form, e.g. when two identical requests race each other.
-    """
-    match_id = repo.create_match(
-        Team(stored_players[:2]), Team(stored_players[2:])
-    )
-    repo.record_result(match_id, "team1", 1)
-
-    repo.record_result(match_id, "team1", 1)
-
-    player = repo.get_player("Player 1")
-    assert player is not None and player.form == 6
-
-
-def test_record_result_twice(repo, stored_players):
-    """
-    Tests that a second result is rejected and does not change any form.
-    """
-    match_id = repo.create_match(
-        Team(stored_players[:2]), Team(stored_players[2:])
-    )
-    repo.record_result(match_id, "team1", 1)
-
-    with pytest.raises(MatchAlreadyRecordedError) as exc:
-        repo.record_result(match_id, "team2", 1)
-
-    assert exc.value.winner == "team1"
-    player = repo.get_player("Player 1")
-    assert player is not None and player.form == 6
-
-
-def test_record_result_unknown_match(repo):
-    """
-    Tests that recording a result for an unknown match raises.
-    """
-    with pytest.raises(MatchNotFoundError):
-        repo.record_result(999, "team1", 1)
-
-
 def test_match_keeps_snapshot_of_players(repo, stored_players):
     """
     Tests that changing a player afterwards doesn't change a past match.
@@ -324,47 +243,6 @@ def test_cannot_remove_player_who_has_played(repo, stored_players):
     assert repo.get_player("Player 1") is not None
     match = repo.get_match(match_id)
     assert match is not None and len(match.team1.players) == 2
-
-
-def test_cancel_match(repo, stored_players):
-    """
-    Tests that cancelling deletes the match and its player rows, after which
-    its players can be removed.
-    """
-    match_id = repo.create_match(
-        Team(stored_players[:2]), Team(stored_players[2:])
-    )
-
-    repo.cancel_match(match_id)
-
-    assert repo.get_match(match_id) is None
-    with repo._connect() as conn:
-        count = conn.execute("SELECT COUNT(*) FROM match_players").fetchone()
-    assert count[0] == 0
-    repo.remove_player("Player 1")
-
-
-def test_cannot_cancel_recorded_match(repo, stored_players):
-    """
-    Tests that a match with a result can't be cancelled.
-    """
-    match_id = repo.create_match(
-        Team(stored_players[:2]), Team(stored_players[2:])
-    )
-    repo.record_result(match_id, "team1", 1)
-
-    with pytest.raises(MatchAlreadyRecordedError):
-        repo.cancel_match(match_id)
-
-    assert repo.get_match(match_id) is not None
-
-
-def test_cancel_unknown_match(repo):
-    """
-    Tests that cancelling an unknown match raises.
-    """
-    with pytest.raises(MatchNotFoundError):
-        repo.cancel_match(999)
 
 
 def test_match_created_at(repo, stored_players):
@@ -445,3 +323,163 @@ def test_default_path_is_absolute_in_project_folder():
     """
     assert os.path.isabs(DEFAULT_DB_PATH)
     assert os.path.dirname(DEFAULT_DB_PATH) == str(PROJECT_ROOT)
+
+
+# -------------------------------------------------------------------
+# Results, deleting and swapping
+# -------------------------------------------------------------------
+
+
+def _forms(repo):
+    return {p.name: p.form for p in repo.list_players()}
+
+
+@pytest.fixture
+def match_id(repo, stored_players):
+    """
+    An unplayed match: Players 1-2 against Players 3-4, everyone on form 5.
+    """
+    return repo.create_match(
+        Team(stored_players[:2]), Team(stored_players[2:])
+    )
+
+
+def test_set_result(repo, match_id):
+    """
+    Winners' form goes up, losers' goes down, and the match's snapshot keeps
+    the forms from when it was created.
+    """
+    repo.set_result(match_id, "team1", 1)
+
+    match = repo.get_match(match_id)
+    assert match is not None and match.winner == "team1"
+    assert [p.form for p in match.team1.players] == [5, 5]
+    assert _forms(repo) == {
+        "Player 1": 6,
+        "Player 2": 6,
+        "Player 3": 4,
+        "Player 4": 4,
+    }
+
+
+def test_set_same_result_twice(repo, match_id):
+    """
+    Setting the result the match already has changes nothing.
+    """
+    repo.set_result(match_id, "team1", 1)
+    repo.set_result(match_id, "team1", 1)
+
+    assert _forms(repo)["Player 1"] == 6
+
+
+def test_change_result(repo, match_id):
+    """
+    Changing the winner undoes the old result's form changes first.
+    """
+    repo.set_result(match_id, "team1", 1)
+
+    repo.set_result(match_id, "team2", 1)
+
+    assert repo.get_match(match_id).winner == "team2"
+    assert _forms(repo) == {
+        "Player 1": 4,
+        "Player 2": 4,
+        "Player 3": 6,
+        "Player 4": 6,
+    }
+
+
+def test_clear_result(repo, match_id):
+    """
+    Clearing the result puts everyone's form back and marks it unplayed.
+    """
+    repo.set_result(match_id, "team1", 1)
+
+    repo.set_result(match_id, None, 1)
+
+    assert repo.get_match(match_id).winner is None
+    assert set(_forms(repo).values()) == {5}
+
+
+def test_undo_is_exact_at_the_form_limits(repo, match_id):
+    """
+    A player already on 10 who wins stays on 10, and undoing that result
+    leaves them on 10 (not 9), because the match remembers they moved by 0.
+    """
+    repo.update_player("Player 1", {"form": 10})
+    repo.update_player("Player 3", {"form": 0})
+
+    repo.set_result(match_id, "team1", 1)
+    assert _forms(repo)["Player 1"] == 10
+    assert _forms(repo)["Player 3"] == 0
+
+    repo.set_result(match_id, None, 1)
+    assert _forms(repo) == {
+        "Player 1": 10,
+        "Player 2": 5,
+        "Player 3": 0,
+        "Player 4": 5,
+    }
+
+
+def test_set_result_unknown_match(repo):
+    """
+    Setting the result of an unknown match raises.
+    """
+    with pytest.raises(MatchNotFoundError):
+        repo.set_result(999, "team1", 1)
+
+
+def test_delete_unplayed_match(repo, match_id):
+    """
+    Deleting removes the match and its player rows, after which its players
+    can be removed.
+    """
+    repo.delete_match(match_id)
+
+    assert repo.get_match(match_id) is None
+    with repo._connect() as conn:
+        count = conn.execute("SELECT COUNT(*) FROM match_players").fetchone()
+    assert count[0] == 0
+    repo.remove_player("Player 1")
+
+
+def test_delete_recorded_match_undoes_form(repo, match_id):
+    """
+    Deleting a played match puts its players' form back.
+    """
+    repo.set_result(match_id, "team1", 1)
+
+    repo.delete_match(match_id)
+
+    assert repo.get_match(match_id) is None
+    assert set(_forms(repo).values()) == {5}
+
+
+def test_delete_unknown_match(repo):
+    """
+    Deleting an unknown match raises.
+    """
+    with pytest.raises(MatchNotFoundError):
+        repo.delete_match(999)
+
+
+def test_swap_players(repo, match_id):
+    """
+    Two players change teams; everyone else stays put.
+    """
+    repo.swap_players(match_id, "Player 1", "Player 3")
+
+    match = repo.get_match(match_id)
+    assert [p.name for p in match.team1.players] == ["Player 2", "Player 3"]
+    assert [p.name for p in match.team2.players] == ["Player 1", "Player 4"]
+
+
+def test_cannot_swap_in_recorded_match(repo, match_id):
+    """
+    The teams of a played match can't change.
+    """
+    repo.set_result(match_id, "team1", 1)
+
+    with pytest.raises(MatchAlreadyRecordedError):
+        repo.swap_players(match_id, "Player 1", "Player 3")

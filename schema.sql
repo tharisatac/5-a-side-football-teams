@@ -38,6 +38,10 @@ CREATE TABLE IF NOT EXISTS match_players (
     fitness INTEGER NOT NULL CHECK (fitness BETWEEN 1 AND 10),
     goalkeeping INTEGER NOT NULL CHECK (goalkeeping BETWEEN 1 AND 10),
     form INTEGER NOT NULL CHECK (form BETWEEN 0 AND 10),
+    -- How much the match's result changed this player's form (e.g. +1, -1,
+    -- or 0 at the limits), so the result can be undone exactly. 0 until a
+    -- result is recorded.
+    form_change INTEGER NOT NULL DEFAULT 0 CHECK (form_change BETWEEN -10 AND 10),
     PRIMARY KEY (match_id, player_id)
 );
 

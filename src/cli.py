@@ -312,7 +312,7 @@ def record_match_result(
     repo: SqliteRepository, args: argparse.Namespace
 ) -> None:
     """
-    Records a match result and updates players' form.
+    Records a match result, or changes it, and updates players' form.
     Usage: teams result <team1|team2> [--match N]
 
     :param repo:
@@ -329,10 +329,10 @@ def record_match_result(
     )
 
 
-def cancel_match(repo: SqliteRepository, args: argparse.Namespace) -> None:
+def undo_result(repo: SqliteRepository, args: argparse.Namespace) -> None:
     """
-    Deletes a match that hasn't been played.
-    Usage: teams cancel [--match N]
+    Marks a match as not played, undoing its result's form changes.
+    Usage: teams undo [--match N]
 
     :param repo:
         Where players and matches are stored.
@@ -340,8 +340,41 @@ def cancel_match(repo: SqliteRepository, args: argparse.Namespace) -> None:
         The parsed command-line arguments: `match` (None for the latest match).
     """
     match = _get_match(repo, args.match)
-    services.cancel_match(repo, match.id)
-    print(f"🗑️ Cancelled {_match_label(match)}.")
+    services.clear_result(repo, match.id)
+    print(f"↩️ Result removed from {_match_label(match)}.")
+
+
+def delete_match(repo: SqliteRepository, args: argparse.Namespace) -> None:
+    """
+    Deletes a match, undoing its result's form changes if it has one.
+    Usage: teams delete [--match N] (or: teams cancel)
+
+    :param repo:
+        Where players and matches are stored.
+    :param args:
+        The parsed command-line arguments: `match` (None for the latest match).
+    """
+    match = _get_match(repo, args.match)
+    services.delete_match(repo, match.id)
+    print(f"🗑️ Deleted {_match_label(match)}.")
+
+
+def swap_players(repo: SqliteRepository, args: argparse.Namespace) -> None:
+    """
+    Swaps two players between the teams of an unplayed match.
+    Usage: teams swap <player> <player> [--match N]
+
+    :param repo:
+        Where players and matches are stored.
+    :param args:
+        The parsed command-line arguments: `players` (two names) and `match`
+        (None for the latest match).
+    """
+    match = _get_match(repo, args.match)
+    match = services.swap_players(repo, match.id, *args.players)
+    print(f"🔁 Swapped {' and '.join(args.players)} ({_match_label(match)}).")
+    _print_team("🏆 **Team 1:**", match.team1)
+    _print_team("🔥 **Team 2:**", match.team2)
 
 
 def get_team_attributes(
@@ -558,12 +591,31 @@ def setup_team_subparser(subparsers):
     _add_match_option(attr_parser)
     attr_parser.set_defaults(func=get_team_attributes)
 
-    # "cancel" command
-    cancel_parser = team_subparsers.add_parser(
-        "cancel", help="Cancel a match that hasn't been played"
+    # "delete" command ("cancel" kept as an alias)
+    delete_parser = team_subparsers.add_parser(
+        "delete",
+        aliases=["cancel"],
+        help="Delete a match, undoing its result's form changes",
     )
-    _add_match_option(cancel_parser)
-    cancel_parser.set_defaults(func=cancel_match)
+    _add_match_option(delete_parser)
+    delete_parser.set_defaults(func=delete_match)
+
+    # "undo" command
+    undo_parser = team_subparsers.add_parser(
+        "undo", help="Mark a match as not played, undoing its form changes"
+    )
+    _add_match_option(undo_parser)
+    undo_parser.set_defaults(func=undo_result)
+
+    # "swap" command
+    swap_parser = team_subparsers.add_parser(
+        "swap", help="Swap two players between the teams of an unplayed match"
+    )
+    swap_parser.add_argument(
+        "players", nargs=2, help="One player from each team"
+    )
+    _add_match_option(swap_parser)
+    swap_parser.set_defaults(func=swap_players)
 
     # "create" command
     create_parser = team_subparsers.add_parser(
@@ -584,7 +636,7 @@ def setup_team_subparser(subparsers):
 
     # "result" command
     result_parser = team_subparsers.add_parser(
-        "result", help="Record match result"
+        "result", help="Record or change a match result"
     )
     result_parser.add_argument(
         "winning_team", choices=TEAM_KEYS, help="Winning team"

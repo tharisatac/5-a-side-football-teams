@@ -256,18 +256,6 @@ def test_cancel_match(client, squad):
     assert client.get(f"/matches/{match['id']}").status_code == 404
 
 
-def test_cancel_recorded_match(client, squad):
-    """
-    Tests that a played match can't be cancelled.
-    """
-    match = _create_match(client)
-    client.put(f"/matches/{match['id']}/result", json={"winner": "team1"})
-
-    response = client.delete(f"/matches/{match['id']}")
-
-    assert response.status_code == 409
-
-
 # -------------------------------------------------------------------
 # Results
 # -------------------------------------------------------------------
@@ -306,20 +294,6 @@ def test_record_result_is_idempotent(client, squad):
     assert second.status_code == 200
     assert second.json() == first.json()
     assert client.get(f"/players/{winner}").json()["form"] == 6
-
-
-def test_record_conflicting_result(client, squad):
-    """
-    Tests that a different result for a recorded match is a 409 conflict.
-    """
-    match = _create_match(client)
-    url = f"/matches/{match['id']}/result"
-    client.put(url, json={"winner": "team1"})
-
-    response = client.put(url, json={"winner": "team2"})
-
-    assert response.status_code == 409
-    assert "team1 won" in response.json()["detail"]
 
 
 def test_record_result_invalid_winner(client, squad):
@@ -397,3 +371,115 @@ def test_player_names_are_trimmed_and_checked(
     assert response.status_code == status_code
     if stored:
         assert client.get(f"/players/{stored}").status_code == 200
+
+
+# -------------------------------------------------------------------
+# Changing results, deleting, swapping and resetting form
+# -------------------------------------------------------------------
+
+
+def test_change_result(client, squad):
+    """
+    PUTting a different winner replaces the result.
+    """
+    match = _create_match(client)
+    winner = match["team1"]["players"][0]["name"]
+    url = f"/matches/{match['id']}/result"
+    client.put(url, json={"winner": "team1"})
+
+    response = client.put(url, json={"winner": "team2"})
+
+    assert response.status_code == 200
+    assert response.json()["winner"] == "team2"
+    assert client.get(f"/players/{winner}").json()["form"] == 4
+
+
+def test_clear_result(client, squad):
+    """
+    DELETE on the result marks the match unplayed and puts form back.
+    """
+    match = _create_match(client)
+    winner = match["team1"]["players"][0]["name"]
+    url = f"/matches/{match['id']}/result"
+    client.put(url, json={"winner": "team1"})
+
+    response = client.delete(url)
+
+    assert response.status_code == 200
+    assert response.json()["winner"] is None
+    assert client.get(f"/players/{winner}").json()["form"] == 5
+
+
+def test_delete_recorded_match(client, squad):
+    """
+    A played match can be deleted, and its form changes are undone.
+    """
+    match = _create_match(client)
+    winner = match["team1"]["players"][0]["name"]
+    client.put(f"/matches/{match['id']}/result", json={"winner": "team1"})
+
+    response = client.delete(f"/matches/{match['id']}")
+
+    assert response.status_code == 204
+    assert client.get(f"/players/{winner}").json()["form"] == 5
+
+
+def test_swap_players(client, squad):
+    """
+    Swapping moves one player from each team to the other.
+    """
+    match = _create_match(client)
+    a = match["team1"]["players"][0]["name"]
+    b = match["team2"]["players"][0]["name"]
+
+    response = client.post(
+        f"/matches/{match['id']}/swap", json={"players": [a, b]}
+    )
+
+    assert response.status_code == 200
+    assert b in [p["name"] for p in response.json()["team1"]["players"]]
+
+
+@pytest.mark.parametrize("same_team, count", [(True, 2), (False, 1)])
+def test_swap_players_invalid(client, squad, same_team, count):
+    """
+    Two players from the same team, or the wrong number of players, is a 422.
+    """
+    match = _create_match(client)
+    team1 = [p["name"] for p in match["team1"]["players"]]
+    team2 = [p["name"] for p in match["team2"]["players"]]
+    players = team1 if same_team else [team1[0], team2[0]][:count]
+
+    response = client.post(
+        f"/matches/{match['id']}/swap", json={"players": players}
+    )
+
+    assert response.status_code == 422
+
+
+def test_swap_players_in_recorded_match(client, squad):
+    """
+    The teams of a played match can't change: 409.
+    """
+    match = _create_match(client)
+    client.put(f"/matches/{match['id']}/result", json={"winner": "team1"})
+    a = match["team1"]["players"][0]["name"]
+    b = match["team2"]["players"][0]["name"]
+
+    response = client.post(
+        f"/matches/{match['id']}/swap", json={"players": [a, b]}
+    )
+
+    assert response.status_code == 409
+
+
+def test_reset_forms(client, squad):
+    """
+    Resetting puts every player's form back to 5.
+    """
+    client.patch("/players/Alice", json={"form": 9})
+
+    response = client.post("/players/reset-forms")
+
+    assert response.status_code == 200
+    assert {p["form"] for p in response.json()} == {5}
