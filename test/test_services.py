@@ -125,6 +125,29 @@ def test_record_result_uses_current_form(repo, stored_players):
     assert stored is not None and stored.form == 7
 
 
+def test_cancel_match(repo, stored_players):
+    """
+    Tests that an unplayed match can be cancelled and teams picked again.
+    """
+    match = services.create_match(repo, NAMES)
+
+    services.cancel_match(repo, match.id)
+
+    assert repo.get_match(match.id) is None
+    assert services.create_match(repo, NAMES).id != match.id
+
+
+def test_cannot_cancel_recorded_match(repo, stored_players):
+    """
+    Tests that a played match can't be cancelled.
+    """
+    match = services.create_match(repo, NAMES)
+    services.record_result(repo, match.id, "team1")
+
+    with pytest.raises(MatchAlreadyRecordedError):
+        services.cancel_match(repo, match.id)
+
+
 def test_record_result_unknown_match(repo):
     """
     Tests that an unknown match ID raises.

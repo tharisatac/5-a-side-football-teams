@@ -8,6 +8,7 @@ transaction, so a method either makes all of its changes or none of them.
 
 import sqlite3
 from contextlib import contextmanager
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, Iterator, List, Optional, Sequence
 
@@ -212,6 +213,23 @@ class SqliteRepository:
             ).fetchone()
             return None if row is None else _load_match(conn, row)
 
+    def cancel_match(self, match_id: int) -> None:
+        """
+        Deletes a match that has no result yet. Its `match_players` rows are
+        deleted too, by the ON DELETE CASCADE on `match_players.match_id`.
+
+        :raises MatchNotFoundError: If the match does not exist.
+        :raises MatchAlreadyRecordedError: If the match already has a result.
+        """
+        with self._connect() as conn:
+            # `winner IS NULL` means a recorded match is never deleted.
+            cur = conn.execute(
+                "DELETE FROM matches WHERE id = ? AND winner IS NULL",
+                (match_id,),
+            )
+            if cur.rowcount == 0:
+                _raise_for_unchangeable_match(conn, match_id)
+
     def record_result(
         self, match_id: int, winner: TeamKey, players: Sequence[Player]
     ) -> None:
@@ -231,14 +249,7 @@ class SqliteRepository:
                 (_TEAM_NUMBERS[winner], match_id),
             )
             if cur.rowcount == 0:
-                row = conn.execute(
-                    "SELECT winner FROM matches WHERE id = ?", (match_id,)
-                ).fetchone()
-                if row is None:
-                    raise MatchNotFoundError(match_id)
-                raise MatchAlreadyRecordedError(
-                    match_id, _WINNERS[row["winner"]]
-                )
+                _raise_for_unchangeable_match(conn, match_id)
 
             conn.executemany(
                 "UPDATE players SET form = ? WHERE name = ?",
@@ -265,6 +276,21 @@ class SqliteRepository:
         """
         with self._connect() as conn:
             conn.executescript(SCHEMA_SQL)
+
+
+def _raise_for_unchangeable_match(
+    conn: sqlite3.Connection, match_id: int
+) -> None:
+    """
+    Called when an update or delete limited to `winner IS NULL` matched no
+    rows: raises the error explaining why.
+    """
+    row = conn.execute(
+        "SELECT winner FROM matches WHERE id = ?", (match_id,)
+    ).fetchone()
+    if row is None:
+        raise MatchNotFoundError(match_id)
+    raise MatchAlreadyRecordedError(match_id, _WINNERS[row["winner"]])
 
 
 def _player_values(player: Player) -> tuple:
@@ -311,4 +337,14 @@ def _load_match(conn: sqlite3.Connection, row: sqlite3.Row) -> Match:
         team.players.append(_row_to_player(player_row))
 
     winner = None if row["winner"] is None else _WINNERS[row["winner"]]
-    return Match(id=row["id"], team1=team1, team2=team2, winner=winner)
+    # SQLite's CURRENT_TIMESTAMP is UTC text, e.g. "2026-10-28 14:05:00".
+    created_at = datetime.fromisoformat(row["created_at"]).replace(
+        tzinfo=timezone.utc
+    )
+    return Match(
+        id=row["id"],
+        team1=team1,
+        team2=team2,
+        created_at=created_at,
+        winner=winner,
+    )

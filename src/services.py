@@ -40,7 +40,10 @@ def create_match(repo: Repository, player_names: Sequence[str]) -> Match:
 
     team1, team2 = balance_teams(players)
     match_id = repo.create_match(team1, team2)
-    return Match(id=match_id, team1=team1, team2=team2)
+    match = repo.get_match(match_id)
+    if match is None:
+        raise MatchNotFoundError(match_id)
+    return match
 
 
 def record_result(repo: Repository, match_id: int, winner: TeamKey) -> Match:
@@ -75,6 +78,24 @@ def record_result(repo: Repository, match_id: int, winner: TeamKey) -> Match:
 
     repo.record_result(match_id, winner, updated)
     match.winner = winner
+    return match
+
+
+def cancel_match(repo: Repository, match_id: int) -> Match:
+    """
+    Deletes a match that hasn't been played, e.g. to pick teams again. A
+    match with a result can't be cancelled, so history stays complete.
+
+    :raises MatchNotFoundError: If the match does not exist.
+    :raises MatchAlreadyRecordedError: If the match already has a result.
+    """
+    match = repo.get_match(match_id)
+    if match is None:
+        raise MatchNotFoundError(match_id)
+    if match.winner is not None:
+        raise MatchAlreadyRecordedError(match_id, match.winner)
+
+    repo.cancel_match(match_id)
     return match
 
 

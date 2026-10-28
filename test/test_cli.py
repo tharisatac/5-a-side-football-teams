@@ -140,6 +140,34 @@ def test_remove_player_who_has_played(reset_database):
     assert "has played in a match" in result.stdout
 
 
+def test_cancel_match(reset_database):
+    """
+    Tests cancelling the latest match, which frees its players for removal.
+    """
+    for player in ["Alice", "Bob"]:
+        add_player_cli(player, 7, 7, 7, 7, 7, 7)
+    run_cli_command(["teams", "create", "Alice", "Bob"])
+
+    result = run_cli_command(["teams", "cancel"])
+    assert "🗑️ Cancelled match #1, " in result.stdout
+
+    run_cli_command(["player", "remove", "Alice"])
+
+
+def test_cancel_recorded_match(reset_database):
+    """
+    Tests that a played match can't be cancelled.
+    """
+    for player in ["Alice", "Bob"]:
+        add_player_cli(player, 7, 7, 7, 7, 7, 7)
+    run_cli_command(["teams", "create", "Alice", "Bob"])
+    run_cli_command(["teams", "result", "team1"])
+
+    result = run_cli_command(["teams", "cancel"], check=False)
+    assert result.returncode == 1
+    assert "already has a result" in result.stdout
+
+
 def test_update_player(reset_database):
     """
     Tests updating a player's attribute via the CLI.
@@ -267,11 +295,11 @@ def test_record_result_for_match_id(reset_database):
     for player in players:
         add_player_cli(player, 7, 7, 7, 7, 7, 7)
     first = run_cli_command(["teams", "create"] + players)
-    assert "(match #1)" in first.stdout
+    assert "(match #1, " in first.stdout
     run_cli_command(["teams", "create"] + players)
 
     result = run_cli_command(["teams", "result", "team2", "--match", "1"])
-    assert "✅ Match recorded: team2 won! (match #1)" in result.stdout
+    assert "✅ Match recorded: team2 won! (match #1, " in result.stdout
 
 
 def test_create_teams_unknown_player(reset_database):

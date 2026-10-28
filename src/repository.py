@@ -8,6 +8,7 @@ touching the CLI or the business logic.
 """
 
 from dataclasses import dataclass
+from datetime import datetime
 from typing import List, Literal, Optional, Protocol, Sequence
 
 from .player import Player
@@ -26,12 +27,14 @@ class Match:
         id : Unique match ID assigned by the repository.
         team1 : The first team.
         team2 : The second team.
+        created_at : When the teams were made (timezone-aware, UTC).
         winner : "team1" or "team2" once recorded, otherwise None.
     """
 
     id: int
     team1: Team
     team2: Team
+    created_at: datetime
     winner: Optional[TeamKey] = None
 
     def team(self, key: TeamKey) -> Team:
@@ -108,6 +111,15 @@ class Repository(Protocol):
     def get_latest_match(self) -> Optional[Match]:
         """
         Returns the most recently created match, or None if there are none.
+        """
+        ...
+
+    def cancel_match(self, match_id: int) -> None:
+        """
+        Deletes a match that has no result yet, along with its players' rows.
+
+        :raises MatchNotFoundError: If the match does not exist.
+        :raises MatchAlreadyRecordedError: If the match already has a result.
         """
         ...
 

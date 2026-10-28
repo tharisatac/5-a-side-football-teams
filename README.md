@@ -15,8 +15,9 @@ Data is stored in `football.db` in the project folder, whichever folder you
 run the CLI from. Set the `FOOTBALL_DB` environment variable to use a
 different file.
 
-A player who has played in a match can't be removed, so match history stays
-complete. Each match stores its players' skills and form from when the teams
+A player who is in a match can't be removed, so match history stays
+complete; cancel an unplayed match first if needed. Matches with a result
+can't be cancelled. Each match stores its players' skills and form from when the teams
 were made.
 
 ```
@@ -27,9 +28,10 @@ were made.
 ./run player update Alice shooting 9
 
 # Matches
-./run teams create Alice Bob Cara Dan    # prints the match ID
+./run teams create Alice Bob Cara Dan    # prints e.g. "match #3, 28 Oct 2026"
 ./run teams rating team1                 # latest match, or --match N
 ./run teams result team1                 # winners' form +1, losers' -1
+./run teams cancel                       # delete an unplayed match
 
 # CSV
 ./run database export players.csv

@@ -202,6 +202,14 @@ def _get_match(repo: Repository, match_id: Optional[int]) -> Match:
     return match
 
 
+def _match_label(match: Match) -> str:
+    """
+    Returns e.g. "match #3, 28 Oct 2026", using the local date.
+    """
+    created = match.created_at.astimezone()
+    return f"match #{match.id}, {created.day} {created:%b %Y}"
+
+
 def _print_team(title: str, team: Team) -> None:
     print(f"\n{title}")
     print(
@@ -218,7 +226,7 @@ def _print_team(title: str, team: Team) -> None:
 def create_teams(repo: Repository, args: argparse.Namespace) -> None:
     """Creates balanced teams from given player names."""
     match = services.create_match(repo, args.players)
-    print(f"✅ Teams created successfully! (match #{match.id})")
+    print(f"✅ Teams created successfully! ({_match_label(match)})")
     _print_team("🏆 **Team 1:**", match.team1)
     _print_team("🔥 **Team 2:**", match.team2)
     print("")
@@ -228,7 +236,17 @@ def record_match_result(repo: Repository, args: argparse.Namespace) -> None:
     """Records a match result (default: latest match) and updates form."""
     match = _get_match(repo, args.match)
     services.record_result(repo, match.id, args.winning_team)
-    print(f"✅ Match recorded: {args.winning_team} won! (match #{match.id})")
+    print(
+        f"✅ Match recorded: {args.winning_team} won! "
+        f"({_match_label(match)})"
+    )
+
+
+def cancel_match(repo: Repository, args: argparse.Namespace) -> None:
+    """Deletes an unplayed match (default: latest match)."""
+    match = _get_match(repo, args.match)
+    services.cancel_match(repo, match.id)
+    print(f"🗑️ Cancelled {_match_label(match)}.")
 
 
 def get_team_attributes(repo: Repository, args: argparse.Namespace) -> None:
@@ -236,10 +254,13 @@ def get_team_attributes(repo: Repository, args: argparse.Namespace) -> None:
     match = _get_match(repo, args.match)
     team = match.team(args.team)
     if not team.players:
-        print(f"❌ Team '{args.team}' in match #{match.id} has no players.")
+        print(f"❌ Team '{args.team}' has no players ({_match_label(match)}).")
         return
 
-    print(f"\n📊 **{args.team.capitalize()} Attributes:** (match #{match.id})")
+    print(
+        f"\n📊 **{args.team.capitalize()} Attributes:** "
+        f"({_match_label(match)})"
+    )
     for attr in ATTRIBUTE_NAMES:
         avg_rating = sum(
             getattr(player.attributes, attr).score for player in team.players
@@ -253,7 +274,7 @@ def get_team_rating(repo: Repository, args: argparse.Namespace) -> None:
     overall_rating = match.team(args.team).get_overall_rating()
     print(
         f"\n⭐ **{args.team.capitalize()} Overall Rating:** "
-        f"{overall_rating:.2f} (match #{match.id})"
+        f"{overall_rating:.2f} ({_match_label(match)})"
     )
 
 
@@ -376,6 +397,13 @@ def setup_team_subparser(subparsers):
     attr_parser.add_argument("team", choices=TEAM_KEYS, help="Select team")
     _add_match_option(attr_parser)
     attr_parser.set_defaults(func=get_team_attributes)
+
+    # "cancel" command
+    cancel_parser = team_subparsers.add_parser(
+        "cancel", help="Cancel a match that hasn't been played"
+    )
+    _add_match_option(cancel_parser)
+    cancel_parser.set_defaults(func=cancel_match)
 
     # "create" command
     create_parser = team_subparsers.add_parser(

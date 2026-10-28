@@ -1,5 +1,6 @@
 import os
 import sqlite3
+from datetime import datetime, timezone
 from test.conftest import make_player
 
 import pytest
@@ -250,6 +251,62 @@ def test_cannot_remove_player_who_has_played(repo, stored_players):
     assert repo.get_player("Player 1") is not None
     match = repo.get_match(match_id)
     assert match is not None and len(match.team1.players) == 2
+
+
+def test_cancel_match(repo, stored_players):
+    """
+    Tests that cancelling deletes the match and its player rows, after which
+    its players can be removed.
+    """
+    match_id = repo.create_match(
+        Team(stored_players[:2]), Team(stored_players[2:])
+    )
+
+    repo.cancel_match(match_id)
+
+    assert repo.get_match(match_id) is None
+    with repo._connect() as conn:
+        count = conn.execute("SELECT COUNT(*) FROM match_players").fetchone()
+    assert count[0] == 0
+    repo.remove_player("Player 1")
+
+
+def test_cannot_cancel_recorded_match(repo, stored_players):
+    """
+    Tests that a match with a result can't be cancelled.
+    """
+    match_id = repo.create_match(
+        Team(stored_players[:2]), Team(stored_players[2:])
+    )
+    repo.record_result(match_id, "team1", [])
+
+    with pytest.raises(MatchAlreadyRecordedError):
+        repo.cancel_match(match_id)
+
+    assert repo.get_match(match_id) is not None
+
+
+def test_cancel_unknown_match(repo):
+    """
+    Tests that cancelling an unknown match raises.
+    """
+    with pytest.raises(MatchNotFoundError):
+        repo.cancel_match(999)
+
+
+def test_match_created_at(repo, stored_players):
+    """
+    Tests that a match records when it was created, as a UTC datetime.
+    """
+    before = datetime.now(timezone.utc).replace(microsecond=0)
+    match_id = repo.create_match(
+        Team(stored_players[:2]), Team(stored_players[2:])
+    )
+    after = datetime.now(timezone.utc)
+
+    match = repo.get_match(match_id)
+    assert match is not None
+    assert before <= match.created_at <= after
 
 
 def test_clear(repo, stored_players):
