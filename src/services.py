@@ -186,6 +186,9 @@ def record_result(
     +1 for the winners and -1 for the losers. The match's own snapshot of
     each player is left as it was.
 
+    Idempotent: recording the same winner again does nothing and succeeds,
+    so a retried request can't change anyone's form twice.
+
     :param repo:
         Where players and matches are stored.
     :param match_id:
@@ -196,7 +199,8 @@ def record_result(
     :raises:
         ValueError: If `winner` is not "team1" or "team2".
         MatchNotFoundError: If the match does not exist.
-        MatchAlreadyRecordedError: If the match already has a result.
+        MatchAlreadyRecordedError: If the match already has a different
+            result.
 
     :return:
         The match, with its winner set.
@@ -207,6 +211,8 @@ def record_result(
     match = repo.get_match(match_id)
     if match is None:
         raise MatchNotFoundError(match_id)
+    if match.winner == winner:
+        return match  # Already recorded: nothing to do.
     if match.winner is not None:
         raise MatchAlreadyRecordedError(match_id, match.winner)
 

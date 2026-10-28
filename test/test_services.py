@@ -82,16 +82,31 @@ def test_record_result_updates_form(repo, stored_players):
     assert stored_match is not None and stored_match.winner == "team1"
 
 
-def test_record_result_twice_does_not_double_count(repo, stored_players):
+def test_record_result_is_idempotent(repo, stored_players):
     """
-    Tests that recording a second result is rejected and forms only move
+    Tests that recording the same result again succeeds and forms only move
     once.
     """
     match = services.create_match(repo, NAMES)
     services.record_result(repo, match.id, "team1")
 
+    again = services.record_result(repo, match.id, "team1")
+
+    assert again.winner == "team1"
+    winner = repo.get_player(match.team1.players[0].name)
+    assert winner is not None and winner.form == 6
+
+
+def test_record_conflicting_result(repo, stored_players):
+    """
+    Tests that a different result for a recorded match is rejected and
+    forms only move once.
+    """
+    match = services.create_match(repo, NAMES)
+    services.record_result(repo, match.id, "team1")
+
     with pytest.raises(MatchAlreadyRecordedError):
-        services.record_result(repo, match.id, "team1")
+        services.record_result(repo, match.id, "team2")
 
     winner = repo.get_player(match.team1.players[0].name)
     assert winner is not None and winner.form == 6

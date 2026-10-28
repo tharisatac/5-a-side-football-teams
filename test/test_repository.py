@@ -192,6 +192,22 @@ def test_record_result(repo, stored_players):
     assert [repo.get_player(p.name).form for p in winners] == [6, 6]
 
 
+def test_record_same_result_twice(repo, stored_players):
+    """
+    Tests that saving the same winner again succeeds without touching any
+    form, e.g. when two identical requests race each other.
+    """
+    match_id = repo.create_match(
+        Team(stored_players[:2]), Team(stored_players[2:])
+    )
+    repo.record_result(match_id, "team1", [])
+
+    repo.record_result(match_id, "team1", [make_player("Player 1", form=0)])
+
+    player = repo.get_player("Player 1")
+    assert player is not None and player.form == 5
+
+
 def test_record_result_twice(repo, stored_players):
     """
     Tests that a second result is rejected and does not change any form.
