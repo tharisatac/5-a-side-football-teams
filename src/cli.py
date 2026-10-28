@@ -1,15 +1,42 @@
 """
 CLI module for managing players, teams, match results, and CSV import/export.
+
+Every command handler takes the repository as its first argument. `main`
+creates it once and passes it in, so nothing here opens a database at import
+time.
 """
 
 import argparse
 import os
+from typing import List, Optional
 
-from .db import DB, UnknownPlayerError
-from .player import Attributes, Player
+from . import csv_io, services
+from .player import ATTRIBUTE_NAMES, DEFAULT_FORM, Attributes, Player
+from .repository import (
+    TEAM_KEYS,
+    Match,
+    MatchAlreadyRecordedError,
+    MatchNotFoundError,
+    PlayerAlreadyExistsError,
+    PlayerNotFoundError,
+    Repository,
+)
+from .sqlite_repository import DEFAULT_DB_PATH, SqliteRepository
+from .teams import DuplicatePlayerError, NotEnoughPlayersError, Team
 
-# Initialize the database connection.
-db = DB(db_name=os.getenv("FOOTBALL_DB", "football.db"))
+# Errors caused by user input. They are printed as a message; anything else
+# is a bug and is left to crash with a full traceback.
+USER_ERRORS = (
+    PlayerNotFoundError,
+    PlayerAlreadyExistsError,
+    MatchNotFoundError,
+    MatchAlreadyRecordedError,
+    DuplicatePlayerError,
+    NotEnoughPlayersError,
+    services.InvalidAttrError,
+    ValueError,
+    OSError,
+)
 
 
 # --------------------------
@@ -17,37 +44,29 @@ db = DB(db_name=os.getenv("FOOTBALL_DB", "football.db"))
 # --------------------------
 
 
-def add_player(args):
+def add_player(repo: Repository, args: argparse.Namespace) -> None:
     """
     Adds a new player to the database.
     Usage: player add <player_name>
     """
-
     attributes = Attributes.from_values(
-        {
-            "shooting": args.shooting,
-            "dribbling": args.dribbling,
-            "passing": args.passing,
-            "tackling": args.tackling,
-            "fitness": args.fitness,
-            "goalkeeping": args.goalkeeping,
-        }
+        {name: getattr(args, name) for name in ATTRIBUTE_NAMES}
     )
-    player = Player(name=args.name, attributes=attributes, form=5)
-    db.add_player(player)
+    player = Player(name=args.name, attributes=attributes, form=DEFAULT_FORM)
+    repo.add_player(player)
     print(f"✅ Player '{args.name}' added!")
 
 
-def remove_player(args):
+def remove_player(repo: Repository, args: argparse.Namespace) -> None:
     """
     Removes a player from the database.
     Usage: player remove <player_name>
     """
-    db.remove_player(args.name)
+    repo.remove_player(args.name)
     print(f"🗑️ Player '{args.name}' removed.")
 
 
-def update_player(args):
+def update_player(repo: Repository, args: argparse.Namespace) -> None:
     """
     Updates a player's attribute.
     Usage: player update <player_name> <attribute> <value>"
@@ -61,70 +80,54 @@ def update_player(args):
         "g": "goalkeeping",
     }
     attribute = attributes_map.get(args.attribute, args.attribute)
-    db.update_player_attribute(args.name, attribute, args.value)
+    services.update_player_field(repo, args.name, attribute, args.value)
     print(f"🔄 Updated {attribute} of '{args.name}' to {args.value}.")
 
 
-def list_players(args):
+def list_players(repo: Repository, args: argparse.Namespace) -> None:
     """
     Lists all players in the database.
     Usage: player list
     """
-    players = db.get_all_players()
+    players = repo.list_players()
     if not players:
         print("❌ No players found in the database.")
         return
 
-    headers = [
-        "Name",
-        "Form",
-        "Shooting",
-        "Dribbling",
-        "Passing",
-        "Tackling",
-        "Fitness",
-        "Goalkeeping",
+    headers = ["Name", "Form"] + [
+        name.capitalize() for name in ATTRIBUTE_NAMES
     ]
     format_str = "{:<20} {:<10} {:<10} {:<10} {:<10} {:<10} {:<10} {:<10}"
     print("\n📋 **Players in Database:**")
     print(format_str.format(*headers))
     print("-" * 100)
     for player in players:
+        values = player.attributes.to_values()
         print(
             format_str.format(
-                player["name"],
-                player["form"],
-                player["shooting"],
-                player["dribbling"],
-                player["passing"],
-                player["tackling"],
-                player["fitness"],
-                player["goalkeeping"],
+                player.name,
+                player.form,
+                *(values[name] for name in ATTRIBUTE_NAMES),
             )
         )
 
 
-def list_player_attributes(args):
+def list_player_attributes(repo: Repository, args: argparse.Namespace) -> None:
     """
     Lists all the attribute values for a given player.
     Usage: player attributes <player_name>
     """
-    player = db.get_player_by_name(args.name)
+    player = repo.get_player(args.name)
     if not player:
-        print(f"❌ Player '{args.name}' not found.")
-        return
+        raise PlayerNotFoundError(args.name)
 
     print(f"\n📊 Attributes for {player.name}:")
-    print(f"  Shooting:        {player.attributes.shooting.get_score()}")
-    print(f"  Dribbling:       {player.attributes.dribbling.get_score()}")
-    print(f"  Passing:         {player.attributes.passing.get_score()}")
-    print(f"  Tackling:        {player.attributes.tackling.get_score()}")
-    print(f"  Fitness:         {player.attributes.fitness.get_score()}")
-    print(f"  Goalkeeping:     {player.attributes.goalkeeping.get_score()}")
+    for name, score in player.attributes.to_values().items():
+        print(f"  {name.capitalize() + ':':<17}{score}")
     print(f"⭐ Overall Rating: {player.get_overall_rating(round_num=True)}")
 
 
-def rank_players(args):
+def rank_players(repo: Repository, args: argparse.Namespace) -> None:
     """
     Ranks players based on overall rating or a specific attribute.
 
@@ -137,169 +140,144 @@ def rank_players(args):
     Valid attribute values are: overall, shooting, dribbling, passing, tackling,
     fitness, goalkeeping.
     """
-    # Retrieve full player instances from the database.
-    players = [db.get_player_by_name(p["name"]) for p in db.get_all_players()]
+    attr = args.attribute.lower() if args.attribute else None
+    if attr is not None and attr != "overall" and attr not in ATTRIBUTE_NAMES:
+        raise services.InvalidAttrError(args.attribute)
+
+    players = repo.list_players()
     if not players:
         print("❌ No players found in the database.")
         return
 
-    def print_ranking(title, key_func):
-        sorted_players = sorted(players, key=key_func, reverse=True)
+    def print_ranking(attr_name: str) -> None:
+        if attr_name == "overall":
+            title = "Overall Rating"
+
+            def score(p: Player) -> float:
+                return p.get_overall_rating()
+
+        else:
+            title = attr_name.capitalize()
+
+            def score(p: Player) -> float:
+                return getattr(p.attributes, attr_name).get_score()
+
         print(f"\n🏅 Ranking by {title}:")
-        for i, player in enumerate(sorted_players, 1):
-            if title.lower() == "overall rating":
-                score = player.get_overall_rating()
-            else:
-                # Dynamically retrieve the attribute score.
-                attr_obj = getattr(player.attributes, title.lower())
-                score = attr_obj.get_score()
-            print(f"{i}. {player.name}: {score:.2f}")
+        for i, player in enumerate(
+            sorted(players, key=score, reverse=True), 1
+        ):
+            print(f"{i}. {player.name}: {score(player):.2f}")
 
     # If no attribute is provided, default to showing all rankings.
-    if not args.attribute:
-        print_ranking("Overall Rating", lambda p: p.get_overall_rating())
-        for attr in [
-            "shooting",
-            "dribbling",
-            "passing",
-            "tackling",
-            "fitness",
-            "goalkeeping",
-        ]:
-            print_ranking(
-                attr.capitalize(),
-                lambda p, a=attr: getattr(p.attributes, a).get_score(),
-            )
-    else:
-        attr = args.attribute.lower()
-        if attr == "overall":
-            print_ranking("Overall Rating", lambda p: p.get_overall_rating())
-        elif attr in [
-            "shooting",
-            "dribbling",
-            "passing",
-            "tackling",
-            "fitness",
-            "goalkeeping",
-        ]:
-            print_ranking(
-                attr.capitalize(),
-                lambda p: getattr(p.attributes, attr).get_score(),
-            )
-        else:
-            print(
-                f"❌ Invalid attribute '{args.attribute}'. Valid options are "
-                "overall, shooting, dribbling, passing, tackling, fitness, "
-                "goalkeeping."
-            )
+    for attr_name in [attr] if attr else ("overall",) + ATTRIBUTE_NAMES:
+        print_ranking(attr_name)
+
+
+def reset_forms(repo: Repository, args: argparse.Namespace) -> None:
+    """
+    Resets all players' forms to the default value.
+    Usage: player reset_forms
+    """
+    repo.reset_forms(DEFAULT_FORM)
+    print(f"✅ All player forms have been reset to {DEFAULT_FORM}.")
 
 
 # --------------------------
 # Team Command Handlers
 # --------------------------
-def create_teams(args):
-    """Creates balanced teams from given player names."""
-    try:
-        teams = db.create_teams(args.players)
-    except UnknownPlayerError as exc:
-        print(f"❌ Error: Unknown player: '{exc.name}'. Check player names.")
-        return
 
-    if teams is None:
-        return
 
-    team1 = teams[0]
-    team2 = teams[1]
-
-    if team1 and team2:
-        print("✅ Teams created successfully!")
-        print("\n🏆 **Team 1:**")
-        print(
-            f"  Rating: {team1.get_overall_rating(round_num=True)} "
-            f"Bonus: {team1.bonus}\n"
-        )
-        for player in team1.players:
-            print(
-                f"- {player.name} "
-                f"(Rating: {player.get_overall_rating(round_num=True)})"
-            )
-
-        print("\n🔥 **Team 2:**")
-        print(
-            f"  Rating: {team2.get_overall_rating(round_num=True)} "
-            f"Bonus: {team2.bonus}\n"
-        )
-        for player in team2.players:
-            print(
-                f"- {player.name} (Rating: "
-                f"{player.get_overall_rating(round_num=True)})"
-            )
-        print("")
+def _get_match(repo: Repository, match_id: Optional[int]) -> Match:
+    """
+    Returns the given match, or the latest one if `match_id` is None.
+    """
+    if match_id is None:
+        match = repo.get_latest_match()
     else:
-        print("❌ Error: Could not create teams. Check player names.")
+        match = repo.get_match(match_id)
+    if match is None:
+        raise MatchNotFoundError(match_id)
+    return match
 
 
-def record_match_result(args):
-    """Records the last match result and updates player form."""
-    db.record_match_result(args.winning_team)
-    print(f"✅ Match recorded: {args.winning_team} won!")
+def _print_team(title: str, team: Team) -> None:
+    print(f"\n{title}")
+    print(
+        f"  Rating: {team.get_overall_rating(round_num=True)} "
+        f"Bonus: {team.bonus}\n"
+    )
+    for player in team.players:
+        print(
+            f"- {player.name} "
+            f"(Rating: {player.get_overall_rating(round_num=True)})"
+        )
 
 
-def get_team_attributes(args):
-    """Displays the attribute ratings of the last generated team."""
-    teams = db.get_last_teams()
-    team_key = args.team
-    if not teams[team_key]:
-        print(f"❌ No previous team '{team_key}' found.")
+def create_teams(repo: Repository, args: argparse.Namespace) -> None:
+    """Creates balanced teams from given player names."""
+    match = services.create_match(repo, args.players)
+    print(f"✅ Teams created successfully! (match #{match.id})")
+    _print_team("🏆 **Team 1:**", match.team1)
+    _print_team("🔥 **Team 2:**", match.team2)
+    print("")
+
+
+def record_match_result(repo: Repository, args: argparse.Namespace) -> None:
+    """Records a match result (default: latest match) and updates form."""
+    match = _get_match(repo, args.match)
+    services.record_result(repo, match.id, args.winning_team)
+    print(f"✅ Match recorded: {args.winning_team} won! (match #{match.id})")
+
+
+def get_team_attributes(repo: Repository, args: argparse.Namespace) -> None:
+    """Displays the average attributes of a team (default: latest match)."""
+    match = _get_match(repo, args.match)
+    team = match.team(args.team)
+    if not team.players:
+        print(f"❌ Team '{args.team}' in match #{match.id} has no players.")
         return
 
-    print(f"\n📊 **{team_key.capitalize()} Attributes:**")
-    for attr in [
-        "shooting",
-        "dribbling",
-        "passing",
-        "tackling",
-        "fitness",
-        "goalkeeping",
-    ]:
+    print(f"\n📊 **{args.team.capitalize()} Attributes:** (match #{match.id})")
+    for attr in ATTRIBUTE_NAMES:
         avg_rating = sum(
-            getattr(player.attributes, attr).score
-            for player in teams[team_key].players
-        ) / len(teams[team_key].players)
+            getattr(player.attributes, attr).score for player in team.players
+        ) / len(team.players)
         print(f"- {attr.capitalize()}: {avg_rating:.2f}")
 
 
-def get_team_rating(args):
-    """Displays the overall team rating of the last generated team."""
-    teams = db.get_last_teams()
-    team = teams[args.team]
-    if not team:
-        print(f"❌ No previous team '{args.team}' found.")
-        return
-    overall_rating = team.get_overall_rating()
+def get_team_rating(repo: Repository, args: argparse.Namespace) -> None:
+    """Displays the overall rating of a team (default: latest match)."""
+    match = _get_match(repo, args.match)
+    overall_rating = match.team(args.team).get_overall_rating()
     print(
         f"\n⭐ **{args.team.capitalize()} Overall Rating:** "
-        f"{overall_rating:.2f}"
+        f"{overall_rating:.2f} (match #{match.id})"
     )
 
 
 # --------------------------
 # Database Command Handlers
 # --------------------------
-def clear_database(args):
-    """Clears all players, matches, and team history from the database."""
-    db.clear_database()
+
+
+def clear_database(repo: Repository, args: argparse.Namespace) -> None:
+    """Clears all players and matches from the database."""
+    repo.clear()
     print("🗑️ All data has been removed from the database.")
 
 
-def export_csv(args):
-    """Exports the players table to a CSV file."""
-    db.export_to_csv(args.filename)
+def export_csv(repo: Repository, args: argparse.Namespace) -> None:
+    """Exports the players to a CSV file."""
+    count = csv_io.export_players(repo, args.filename)
+    print(f"✅ Exported {count} players to '{args.filename}'.")
 
 
-def import_csv(args):
+def import_csv(repo: Repository, args: argparse.Namespace) -> None:
     """Imports players from a CSV file into the database."""
-    db.import_from_csv(args.filename)
+    count, errors = csv_io.import_players(repo, args.filename)
+    for name, exc in errors:
+        print(f"⚠️ Could not import player {name}: {exc}")
+    print(f"✅ Imported {count} players from '{args.filename}'.")
 
 
 # --------------------------
@@ -314,40 +292,14 @@ def setup_player_subparser(subparsers):
     # "add" command
     add_parser = player_subparsers.add_parser("add", help="Add a new player")
     add_parser.add_argument("name", type=str, help="Player's name")
-    add_parser.add_argument(
-        "-s",
-        "--shooting",
-        type=int,
-        required=True,
-        help="Shooting skill (1-10)",
-    )
-    add_parser.add_argument(
-        "-d",
-        "--dribbling",
-        type=int,
-        required=True,
-        help="Dribbling skill (1-10)",
-    )
-    add_parser.add_argument(
-        "-p", "--passing", type=int, required=True, help="Passing skill (1-10)"
-    )
-    add_parser.add_argument(
-        "-t",
-        "--tackling",
-        type=int,
-        required=True,
-        help="Tackling skill (1-10)",
-    )
-    add_parser.add_argument(
-        "-f", "--fitness", type=int, required=True, help="Fitness level (1-10)"
-    )
-    add_parser.add_argument(
-        "-g",
-        "--goalkeeping",
-        type=int,
-        required=True,
-        help="Goalkeeping skill (1-10)",
-    )
+    for name in ATTRIBUTE_NAMES:
+        add_parser.add_argument(
+            f"-{name[0]}",
+            f"--{name}",
+            type=int,
+            required=True,
+            help=f"{name.capitalize()} skill (1-10)",
+        )
     add_parser.set_defaults(func=add_player)
 
     # "attributes" command
@@ -370,8 +322,8 @@ def setup_player_subparser(subparsers):
         nargs="?",
         help=(
             "Attribute to rank by (overall, shooting, dribbling, passing, "
-            "tackling, fitness, goalkeeping). If omitted, all rankings will be"
-            "shown."
+            "tackling, fitness, goalkeeping). If omitted, all rankings will "
+            "be shown."
         ),
     )
     rank_parser.set_defaults(func=rank_players)
@@ -385,20 +337,30 @@ def setup_player_subparser(subparsers):
 
     # "reset_forms" command
     reset_parser = player_subparsers.add_parser(
-        "reset_forms", help="Reset all player forms to default (5)"
+        "reset_forms",
+        help=f"Reset all player forms to default ({DEFAULT_FORM})",
     )
-    reset_parser.set_defaults(func=lambda args: db.reset_player_forms())
+    reset_parser.set_defaults(func=reset_forms)
 
     # "update" command
     update_parser = player_subparsers.add_parser(
-        "update", help="Update a player's skill"
+        "update", help="Update a player's skill or form"
     )
     update_parser.add_argument("name", type=str, help="Player's name")
     update_parser.add_argument(
-        "attribute", type=str, help="Attribute to update"
+        "attribute", type=str, help="Attribute to update, or 'form'"
     )
     update_parser.add_argument("value", type=int, help="New value")
     update_parser.set_defaults(func=update_player)
+
+
+def _add_match_option(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--match",
+        type=int,
+        default=None,
+        help="Match ID (default: the latest match)",
+    )
 
 
 def setup_team_subparser(subparsers):
@@ -409,9 +371,8 @@ def setup_team_subparser(subparsers):
     attr_parser = team_subparsers.add_parser(
         "attributes", help="Get team attribute ratings"
     )
-    attr_parser.add_argument(
-        "team", choices=["team1", "team2"], help="Select team"
-    )
+    attr_parser.add_argument("team", choices=TEAM_KEYS, help="Select team")
+    _add_match_option(attr_parser)
     attr_parser.set_defaults(func=get_team_attributes)
 
     # "create" command
@@ -427,9 +388,8 @@ def setup_team_subparser(subparsers):
     rating_parser = team_subparsers.add_parser(
         "rating", help="Get overall team rating"
     )
-    rating_parser.add_argument(
-        "team", choices=["team1", "team2"], help="Select team"
-    )
+    rating_parser.add_argument("team", choices=TEAM_KEYS, help="Select team")
+    _add_match_option(rating_parser)
     rating_parser.set_defaults(func=get_team_rating)
 
     # "result" command
@@ -437,8 +397,9 @@ def setup_team_subparser(subparsers):
         "result", help="Record match result"
     )
     result_parser.add_argument(
-        "winning_team", choices=["team1", "team2"], help="Winning team"
+        "winning_team", choices=TEAM_KEYS, help="Winning team"
     )
+    _add_match_option(result_parser)
     result_parser.set_defaults(func=record_match_result)
 
 
@@ -452,12 +413,7 @@ def setup_database_subparser(subparsers):
     clear_parser = database_subparsers.add_parser(
         "clear", help="Clear all database data"
     )
-    clear_parser.set_defaults(
-        func=lambda args: (
-            db.clear_database(),
-            print("🗑️ All data has been removed from the database."),
-        )
-    )
+    clear_parser.set_defaults(func=clear_database)
 
     # "export" command
     export_parser = database_subparsers.add_parser(
@@ -470,9 +426,7 @@ def setup_database_subparser(subparsers):
         default="players_export.csv",
         help="Output CSV filename",
     )
-    export_parser.set_defaults(
-        func=lambda args: db.export_to_csv(args.filename)
-    )
+    export_parser.set_defaults(func=export_csv)
 
     # "import" command
     import_parser = database_subparsers.add_parser(
@@ -485,15 +439,17 @@ def setup_database_subparser(subparsers):
         default="players_import.csv",
         help="Input CSV filename",
     )
-    import_parser.set_defaults(
-        func=lambda args: db.import_from_csv(args.filename)
-    )
+    import_parser.set_defaults(func=import_csv)
 
 
 # --------------------------
 # Main CLI Entry Point
 # --------------------------
-def main():
+def main(argv: Optional[List[str]] = None) -> int:
+    """
+    Parses `argv` (default: the command line), runs the command and returns
+    the exit code: 0 on success, 1 if the command failed.
+    """
     parser = argparse.ArgumentParser(description="Football Team Manager CLI")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
@@ -501,9 +457,15 @@ def main():
     setup_team_subparser(subparsers)
     setup_database_subparser(subparsers)
 
-    args = parser.parse_args()
-    args.func(args)
+    args = parser.parse_args(argv)
+    repo = SqliteRepository(os.getenv("FOOTBALL_DB", DEFAULT_DB_PATH))
+    try:
+        args.func(repo, args)
+    except USER_ERRORS as exc:
+        print(f"❌ {exc}")
+        return 1
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

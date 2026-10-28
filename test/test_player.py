@@ -1,6 +1,6 @@
 import pytest
 
-from src.player import Attributes, Player
+from src.player import ATTRIBUTE_WEIGHTS, Attributes, Player
 
 
 @pytest.fixture
@@ -231,3 +231,32 @@ def test_invalid_input():
 
     with pytest.raises(ValueError):
         Attributes.from_values(invalid_player_data)
+
+
+def test_overall_rating_uses_attribute_weights():
+    """
+    Tests the weighted overall rating with differing attribute scores.
+    Overall rating =
+        (weighted sum of attribute scores) * (1 + 0.05 * (form - 5))
+    """
+    player = Player(
+        name="Weighted",
+        attributes=Attributes.from_values(
+            {
+                "shooting": 8,
+                "dribbling": 7,
+                "passing": 9,
+                "tackling": 6,
+                "fitness": 9,
+                "goalkeeping": 5,
+            }
+        ),
+        form=7,
+    )
+    base_rating = sum(
+        player.attributes.to_values()[attr] * weight
+        for attr, weight in ATTRIBUTE_WEIGHTS.items()
+    )
+    # 8*.3 + 7*.3 + 9*.15 + 6*.15 + 9*.05 + 5*.05 = 7.45
+    assert base_rating == pytest.approx(7.45)
+    assert player.get_overall_rating() == pytest.approx(7.45 * 1.1)

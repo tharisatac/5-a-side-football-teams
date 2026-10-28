@@ -1,7 +1,7 @@
 """
-This module defines the Player and Attributes classes for managing player 
-info, including their attributes such as shooting, dribbling, passing, tackling, 
-fitness, and goalkeeping. The overall rating is calculated based on attributes 
+This module defines the Player and Attributes classes for managing player
+info, including their attributes such as shooting, dribbling, passing, tackling,
+fitness, and goalkeeping. The overall rating is calculated based on attributes
 and current form.
 """
 
@@ -20,6 +20,11 @@ __all__ = [
 
 NUM_ATTRIBUTES = 6
 
+# Form scale is 0-10, where 5 is average.
+DEFAULT_FORM = 5
+MIN_FORM = 0
+MAX_FORM = 10
+
 # Define weights for each attribute based on a 5-a-side game focus.
 ATTRIBUTE_WEIGHTS = {
     "shooting": 0.30,
@@ -29,6 +34,9 @@ ATTRIBUTE_WEIGHTS = {
     "fitness": 0.05,
     "goalkeeping": 0.05,
 }
+
+# The attribute names, in display order.
+ATTRIBUTE_NAMES = tuple(ATTRIBUTE_WEIGHTS)
 
 
 @dataclass
@@ -118,6 +126,13 @@ class Attributes:
             goalkeeping=Goalkeeping(values.get("goalkeeping", 5)),
         )
 
+    def to_values(self) -> dict[str, float]:
+        """
+        Returns the attribute scores as a plain dict, the inverse of
+        `from_values`.
+        """
+        return {name: getattr(self, name).score for name in ATTRIBUTE_NAMES}
+
 
 @dataclass
 class Player:
@@ -132,7 +147,7 @@ class Player:
 
     def __post_init__(self):
         # Clamp form between 0 and 10
-        self.form = max(0, min(self.form, 10))
+        self.form = max(MIN_FORM, min(self.form, MAX_FORM))
 
     def _get_base_rating(self) -> float:
         """
@@ -168,6 +183,6 @@ class Player:
         Increase form if won, decrease if lost.
         """
         if won:
-            self.form = min(self.form + 1, 10)
+            self.form = min(self.form + 1, MAX_FORM)
         else:
-            self.form = max(self.form - 1, 0)
+            self.form = max(self.form - 1, MIN_FORM)
