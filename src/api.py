@@ -12,7 +12,7 @@ from functools import lru_cache
 from typing import Annotated, Dict, List, Optional
 
 from fastapi import Depends, FastAPI, Request, status
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 from . import services
@@ -252,6 +252,14 @@ def _match_out(match: Match) -> MatchOut:
 # --------------------------
 # Health
 # --------------------------
+
+
+@app.get("/", include_in_schema=False)
+def root() -> RedirectResponse:
+    """
+    Sends visitors to the interactive docs, until there is a UI to show.
+    """
+    return RedirectResponse(url="/docs")
 
 
 @app.get("/healthz")

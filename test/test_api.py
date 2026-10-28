@@ -50,6 +50,16 @@ def _create_match(client: TestClient) -> dict:
 # -------------------------------------------------------------------
 
 
+def test_root_redirects_to_docs(client):
+    """
+    Tests that the root URL isn't a dead end.
+    """
+    response = client.get("/", follow_redirects=False)
+
+    assert response.status_code == 307
+    assert response.headers["location"] == "/docs"
+
+
 def test_healthz(client):
     """
     Tests the health check.
