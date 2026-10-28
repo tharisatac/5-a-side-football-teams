@@ -12,7 +12,7 @@ source venv/bin/activate
 
 ## Usage
 Data is stored in `football.db` (override with the `FOOTBALL_DB` environment
-variable). Older databases are upgraded automatically on first use.
+variable).
 
 ```
 # Players: skills are 1-10

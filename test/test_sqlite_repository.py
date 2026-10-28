@@ -9,7 +9,7 @@ from src.repository import (
     PlayerAlreadyExistsError,
     PlayerNotFoundError,
 )
-from src.sqlite_repository import SCHEMA_VERSION, SqliteRepository
+from src.sqlite_repository import SqliteRepository
 from src.teams import Team
 
 # -------------------------------------------------------------------
@@ -270,123 +270,12 @@ def test_check_constraints_reject_bad_scores(repo):
             conn.execute("UPDATE players SET shooting = 95")
 
 
-def test_new_database_has_schema_version(tmp_path):
+def test_reopening_keeps_data(tmp_path):
     """
-    Tests that a new database is stamped with the schema version, and that
-    opening it again is a no-op.
+    Tests that opening an existing database (which re-runs schema.sql) keeps
+    its data.
     """
-    path = str(tmp_path / "new.db")
+    path = str(tmp_path / "test.db")
     SqliteRepository(path).add_player(make_player("Alice"))
-    repo = SqliteRepository(path)
 
-    with repo._connect() as conn:
-        version = conn.execute("PRAGMA user_version").fetchone()[0]
-    assert version == SCHEMA_VERSION
-    assert repo.get_player("Alice") is not None
-
-
-# -------------------------------------------------------------------
-# Migration from the old `DB` class schema
-# -------------------------------------------------------------------
-
-OLD_SCHEMA = """
-CREATE TABLE players (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT UNIQUE NOT NULL,
-    shooting INTEGER, dribbling INTEGER, passing INTEGER,
-    tackling INTEGER, fitness INTEGER, goalkeeping INTEGER,
-    form INTEGER DEFAULT 5,
-    trueskill_mu REAL DEFAULT 25,
-    trueskill_sigma REAL DEFAULT 8.333
-);
-CREATE TABLE matches (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    team_1_score INTEGER, team_2_score INTEGER, winner INTEGER NULL
-);
-CREATE TABLE match_players (
-    match_id INTEGER, player_id INTEGER, team_number INTEGER,
-    FOREIGN KEY (match_id) REFERENCES matches(id),
-    FOREIGN KEY (player_id) REFERENCES players(id),
-    PRIMARY KEY (match_id, player_id)
-);
-CREATE TABLE last_teams (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    player_name TEXT NOT NULL,
-    team TEXT CHECK(team IN ('team1', 'team2')) NOT NULL,
-    bonus REAL
-);
-"""
-
-
-def _make_old_database(path, shooting=7):
-    with sqlite3.connect(path) as conn:
-        conn.executescript(OLD_SCHEMA)
-        for name in ["Alice", "Bob", "Cara"]:
-            conn.execute(
-                "INSERT INTO players (name, shooting, dribbling, passing, "
-                "tackling, fitness, goalkeeping, form) "
-                "VALUES (?, ?, 7, 7, 7, 7, 7, 6)",
-                (name, shooting),
-            )
-        conn.executemany(
-            "INSERT INTO last_teams (player_name, team, bonus) "
-            "VALUES (?, ?, ?)",
-            [("Alice", "team1", 1.0), ("Bob", "team2", 1.2)],
-        )
-    conn.close()
-
-
-def _tables(path):
-    conn = sqlite3.connect(path)
-    try:
-        return {
-            row[0]
-            for row in conn.execute(
-                "SELECT name FROM sqlite_master WHERE type = 'table'"
-            )
-        }
-    finally:
-        conn.close()
-
-
-def test_migrates_old_database(tmp_path):
-    """
-    Tests that players are kept and pending last_teams become a match.
-    """
-    path = str(tmp_path / "old.db")
-    _make_old_database(path)
-
-    repo = SqliteRepository(path)
-
-    assert [p.name for p in repo.list_players()] == ["Alice", "Bob", "Cara"]
-    assert {p.form for p in repo.list_players()} == {6}
-
-    match = repo.get_latest_match()
-    assert match is not None
-    assert [p.name for p in match.team1.players] == ["Alice"]
-    assert [p.name for p in match.team2.players] == ["Bob"]
-    assert match.team2.bonus == 1.2
-    assert match.winner is None
-
-    assert "last_teams" not in _tables(path)
-    assert "players_v0" not in _tables(path)
-
-
-def test_failed_migration_leaves_database_unchanged(tmp_path):
-    """
-    Tests that the migration is all-or-nothing: an old player with an
-    invalid score makes it fail, and the old tables are left as they were.
-    """
-    path = str(tmp_path / "old.db")
-    _make_old_database(path, shooting=95)
-
-    with pytest.raises(sqlite3.IntegrityError):
-        SqliteRepository(path)
-
-    assert _tables(path) >= {"players", "matches", "last_teams"}
-    conn = sqlite3.connect(path)
-    try:
-        assert conn.execute("PRAGMA user_version").fetchone()[0] == 0
-        assert conn.execute("SELECT COUNT(*) FROM last_teams").fetchone()[0]
-    finally:
-        conn.close()
+    assert SqliteRepository(path).get_player("Alice") is not None

@@ -9,7 +9,7 @@ transaction, so a method either makes all of its changes or none of them.
 import sqlite3
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Dict, Iterator, List, Optional, Sequence, Set
+from typing import Dict, Iterator, List, Optional, Sequence
 
 from .player import ATTRIBUTE_NAMES, Attributes, Player
 from .repository import (
@@ -24,9 +24,6 @@ from .teams import Team
 
 DEFAULT_DB_PATH = "football.db"
 
-# Bump this and add a migration step in `_migrate` whenever schema.sql
-# changes. SQLite stores it in the database file header (`PRAGMA user_version`).
-SCHEMA_VERSION = 1
 SCHEMA_SQL = (Path(__file__).parent.parent / "schema.sql").read_text()
 
 # Column names are fixed constants, so it is safe to build SQL from them.
@@ -43,11 +40,11 @@ class SqliteRepository:
 
     def __init__(self, path: str = DEFAULT_DB_PATH):
         """
-        Opens (or creates) the database at `path` and brings its schema up
-        to date.
+        Opens (or creates) the database at `path` and creates any missing
+        tables.
         """
         self.path = path
-        self._migrate()
+        self._create_schema()
 
     @contextmanager
     def _connect(self) -> Iterator[sqlite3.Connection]:
@@ -243,51 +240,13 @@ class SqliteRepository:
             conn.execute("DELETE FROM matches")
             conn.execute("DELETE FROM players")
 
-    def _migrate(self) -> None:
+    def _create_schema(self) -> None:
         """
-        Creates the schema in a new database, or upgrades an older one.
-
-        The whole upgrade runs in one transaction, so a failure leaves the
-        file exactly as it was.
+        Creates any missing tables. Safe to run on every start, because
+        every statement in schema.sql uses IF NOT EXISTS.
         """
-        # isolation_level=None stops Python's sqlite3 module from opening and
-        # committing transactions on its own; the script below does it
-        # explicitly with BEGIN, and we COMMIT once the checks pass.
-        conn = sqlite3.connect(self.path, isolation_level=None)
-        try:
-            version = conn.execute("PRAGMA user_version").fetchone()[0]
-            if version == SCHEMA_VERSION:
-                return
-            if version > SCHEMA_VERSION:
-                raise RuntimeError(
-                    f"Database '{self.path}' has schema version {version}, "
-                    f"newer than this code supports ({SCHEMA_VERSION})."
-                )
-
-            tables = {
-                row[0]
-                for row in conn.execute(
-                    "SELECT name FROM sqlite_master WHERE type = 'table'"
-                )
-            }
-            script = ["BEGIN;"]
-            if "players" in tables:
-                script.append(_v0_prepare_sql(conn, tables))
-            script.append(SCHEMA_SQL)
-            if "players" in tables:
-                script.append(_v0_copy_sql(tables))
-            conn.executescript("\n".join(script))
-
-            # Foreign keys are off on this connection (the default), so
-            # check that the copied data is consistent before committing.
-            problems = conn.execute("PRAGMA foreign_key_check").fetchall()
-            if problems:
-                raise RuntimeError(f"Foreign key problems: {problems}")
-            conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
-            conn.execute("COMMIT")
-        finally:
-            # Closing without COMMIT (e.g. after an error) rolls back.
-            conn.close()
+        with self._connect() as conn:
+            conn.executescript(SCHEMA_SQL)
 
 
 def _player_values(player: Player) -> tuple:
@@ -333,61 +292,3 @@ def _load_match(conn: sqlite3.Connection, row: sqlite3.Row) -> Match:
 
     winner = None if row["winner"] is None else _WINNERS[row["winner"]]
     return Match(id=row["id"], team1=team1, team2=team2, winner=winner)
-
-
-# --------------------------
-# Migration from the pre-versioning schema (the old `DB` class)
-# --------------------------
-
-
-def _v0_prepare_sql(conn: sqlite3.Connection, tables: Set[str]) -> str:
-    """
-    Moves the old tables out of the way so schema.sql can create new ones.
-
-    The old `match_players` table was never written to, and old `matches`
-    rows had no players attached, so neither holds anything worth keeping.
-    An old `matches` table that does have rows is kept as `matches_v0`.
-    """
-    sql = [
-        # Dropped first so renaming `players` doesn't rewrite its foreign key.
-        "DROP TABLE IF EXISTS match_players;",
-        "ALTER TABLE players RENAME TO players_v0;",
-    ]
-    if "matches" in tables:
-        count = conn.execute("SELECT COUNT(*) FROM matches").fetchone()[0]
-        if count == 0:
-            sql.append("DROP TABLE matches;")
-        else:
-            sql.append("ALTER TABLE matches RENAME TO matches_v0;")
-    return "\n".join(sql)
-
-
-def _v0_copy_sql(tables: Set[str]) -> str:
-    """
-    Copies players into the new table (adding the CHECK constraints) and turns
-    any pending `last_teams` into an unrecorded match, so `teams result` still
-    works straight after upgrading. Unused old columns (e.g. trueskill_mu)
-    are not copied.
-    """
-    sql = [
-        "INSERT INTO players (id, name, shooting, dribbling, passing, "
-        "tackling, fitness, goalkeeping, form) "
-        "SELECT id, name, shooting, dribbling, passing, tackling, fitness, "
-        "goalkeeping, COALESCE(form, 5) FROM players_v0;",
-    ]
-    if "last_teams" in tables:
-        sql += [
-            "INSERT INTO matches (team_1_bonus, team_2_bonus) "
-            "SELECT "
-            "COALESCE(MAX(CASE WHEN team = 'team1' THEN bonus END), 1.0), "
-            "COALESCE(MAX(CASE WHEN team = 'team2' THEN bonus END), 1.0) "
-            "FROM last_teams HAVING COUNT(*) > 0;",
-            "INSERT INTO match_players (match_id, player_id, team_number) "
-            "SELECT (SELECT MAX(id) FROM matches), p.id, "
-            "CASE lt.team WHEN 'team1' THEN 1 ELSE 2 END "
-            "FROM last_teams lt JOIN players p ON p.name = lt.player_name "
-            "ORDER BY lt.id;",
-            "DROP TABLE last_teams;",
-        ]
-    sql.append("DROP TABLE players_v0;")
-    return "\n".join(sql)
