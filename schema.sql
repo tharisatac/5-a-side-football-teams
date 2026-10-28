@@ -31,6 +31,9 @@ CREATE TABLE IF NOT EXISTS match_players (
     -- RESTRICT: a player who has played in a match can't be deleted.
     player_id INTEGER NOT NULL REFERENCES players(id) ON DELETE RESTRICT,
     team_number INTEGER NOT NULL CHECK (team_number IN (1, 2)),
+    -- The player's place in their team's list (0 = first), so teams are
+    -- always shown in the same order and a swap keeps both players' spots.
+    position INTEGER NOT NULL DEFAULT 0,
     shooting INTEGER NOT NULL CHECK (shooting BETWEEN 1 AND 10),
     dribbling INTEGER NOT NULL CHECK (dribbling BETWEEN 1 AND 10),
     passing INTEGER NOT NULL CHECK (passing BETWEEN 1 AND 10),

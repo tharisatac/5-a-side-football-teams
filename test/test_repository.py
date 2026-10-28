@@ -466,13 +466,13 @@ def test_delete_unknown_match(repo):
 
 def test_swap_players(repo, match_id):
     """
-    Two players change teams; everyone else stays put.
+    Two players take each other's exact place; everyone else stays put.
     """
-    repo.swap_players(match_id, "Player 1", "Player 3")
+    repo.swap_players(match_id, "Player 1", "Player 4")
 
     match = repo.get_match(match_id)
-    assert [p.name for p in match.team1.players] == ["Player 2", "Player 3"]
-    assert [p.name for p in match.team2.players] == ["Player 1", "Player 4"]
+    assert [p.name for p in match.team1.players] == ["Player 4", "Player 2"]
+    assert [p.name for p in match.team2.players] == ["Player 3", "Player 1"]
 
 
 def test_cannot_swap_in_recorded_match(repo, match_id):

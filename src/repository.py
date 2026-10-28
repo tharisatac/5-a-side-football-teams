@@ -345,13 +345,13 @@ class SqliteRepository:
             placeholders = ", ".join("?" for _ in _PLAYER_COLUMNS[1:])
 
             for team_number, team in ((1, team1), (2, team2)):
-                for player in team.players:
+                for position, player in enumerate(team.players):
                     cur = conn.execute(
-                        "INSERT INTO match_players "
-                        f"(match_id, player_id, team_number, {snapshot}) "
-                        f"SELECT ?, id, ?, {placeholders} "
+                        "INSERT INTO match_players (match_id, player_id, "
+                        f"team_number, position, {snapshot}) "
+                        f"SELECT ?, id, ?, ?, {placeholders} "
                         "FROM players WHERE name = ?",
-                        (match_id, team_number)
+                        (match_id, team_number, position)
                         + self._player_values(player)[1:]
                         + (player.name,),
                     )
@@ -444,8 +444,9 @@ class SqliteRepository:
 
     def swap_players(self, match_id: int, name1: str, name2: str) -> None:
         """
-        Moves two players to each other's team in a match that hasn't been
-        played. The caller checks they are in the match on different teams.
+        Puts two players in each other's place in a match that hasn't been
+        played: each takes the other's team and position in the list. The
+        caller checks they are in the match on different teams.
 
         :param match_id:
             The match ID.
@@ -462,13 +463,25 @@ class SqliteRepository:
             winner = self._lock_match(conn, match_id)
             if winner is not None:
                 raise MatchAlreadyRecordedError(match_id, winner)
-            # 3 - team_number turns team 1 into 2 and 2 into 1.
-            conn.execute(
-                "UPDATE match_players SET team_number = 3 - team_number "
-                "WHERE match_id = ? AND player_id IN "
-                "(SELECT id FROM players WHERE name IN (?, ?))",
+            spots = conn.execute(
+                "SELECT p.name, mp.player_id, mp.team_number, mp.position "
+                "FROM match_players mp JOIN players p ON p.id = mp.player_id "
+                "WHERE mp.match_id = ? AND p.name IN (?, ?)",
                 (match_id, name1, name2),
-            )
+            ).fetchall()
+            first, second = sorted(spots, key=lambda r: r["name"] != name1)
+            # Each player takes the other's team and position.
+            for player, spot in ((first, second), (second, first)):
+                conn.execute(
+                    "UPDATE match_players SET team_number = ?, position = ? "
+                    "WHERE match_id = ? AND player_id = ?",
+                    (
+                        spot["team_number"],
+                        spot["position"],
+                        match_id,
+                        player["player_id"],
+                    ),
+                )
 
     # --------------------------
     # Database
@@ -643,7 +656,7 @@ class SqliteRepository:
         player_rows = conn.execute(
             f"SELECT mp.team_number, {columns} FROM match_players mp "
             "JOIN players p ON p.id = mp.player_id "
-            "WHERE mp.match_id = ? ORDER BY mp.rowid",
+            "WHERE mp.match_id = ? ORDER BY mp.team_number, mp.position",
             (row["id"],),
         ).fetchall()
 
