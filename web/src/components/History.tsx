@@ -1,8 +1,42 @@
-import { Match, Team } from "../api";
+import { useState } from "react";
+
+import { api, Match, Team, TeamKey } from "../api";
+import type { Run } from "../App";
 import { matchDate, rating } from "../format";
 
-/** Every match, newest first, with the winner highlighted. */
-export default function History({ matches }: { matches: Match[] }) {
+const RESULTS: { winner: TeamKey | null; label: string }[] = [
+  { winner: "team1", label: "Team 1 won" },
+  { winner: "team2", label: "Team 2 won" },
+  { winner: null, label: "Not played" },
+];
+
+/**
+ * Every match, newest first, with the winner highlighted. Each result can be
+ * changed or cleared, and any match deleted; form changes are undone to match.
+ */
+export default function History({ matches, run }: { matches: Match[]; run: Run }) {
+  const [busy, setBusy] = useState(false);
+
+  async function act(action: () => Promise<unknown>) {
+    setBusy(true);
+    await run(action);
+    setBusy(false);
+  }
+
+  function setResult(match: Match, winner: TeamKey | null) {
+    if (winner === match.winner) return;
+    act(() =>
+      winner ? api.recordResult(match.id, winner) : api.clearResult(match.id),
+    );
+  }
+
+  function remove(match: Match) {
+    const undo = match.winner ? " Its form changes will be undone." : "";
+    if (window.confirm(`Delete match #${match.id}?${undo}`)) {
+      act(() => api.deleteMatch(match.id));
+    }
+  }
+
   return (
     <section className="panel">
       <div className="panel-head">
@@ -18,18 +52,33 @@ export default function History({ matches }: { matches: Match[] }) {
               <div className="history-head">
                 <span className="history-id">#{match.id}</span>
                 <span className="muted">{matchDate(match.created_at)}</span>
-                <span className={match.winner ? "pill winner" : "pill"}>
-                  {match.winner === "team1"
-                    ? "Team 1 won"
-                    : match.winner === "team2"
-                      ? "Team 2 won"
-                      : "Not played yet"}
-                </span>
               </div>
               <div className="history-teams">
                 <TeamLine team={match.team1} side="team1" won={match.winner === "team1"} />
                 <span className="versus">vs</span>
                 <TeamLine team={match.team2} side="team2" won={match.winner === "team2"} />
+              </div>
+              <div className="history-actions">
+                <div className="segmented" role="group" aria-label={`Result of match #${match.id}`}>
+                  {RESULTS.map(({ winner, label }) => (
+                    <button
+                      key={label}
+                      className={match.winner === winner ? "active" : undefined}
+                      aria-pressed={match.winner === winner}
+                      disabled={busy}
+                      onClick={() => setResult(match, winner)}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                <button
+                  className="link-button danger"
+                  disabled={busy}
+                  onClick={() => remove(match)}
+                >
+                  Delete
+                </button>
               </div>
             </li>
           ))}

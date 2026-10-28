@@ -114,7 +114,7 @@ export default function App() {
         ) : tab === "squad" ? (
           <Squad players={players} run={run} />
         ) : (
-          <History matches={matches} />
+          <History matches={matches} run={run} />
         )}
       </main>
 

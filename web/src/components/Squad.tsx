@@ -1,6 +1,6 @@
 import { useState } from "react";
 
-import { Player, SKILLS } from "../api";
+import { api, Player, SKILLS } from "../api";
 import type { Run } from "../App";
 import { formTrend, rating } from "../format";
 import PlayerEditor from "./PlayerEditor";
@@ -27,9 +27,22 @@ export default function Squad({ players, run }: { players: Player[]; run: Run })
       <section className="panel">
         <div className="panel-head">
           <h2>Squad</h2>
-          <button className="primary-button small" onClick={() => setEditing("new")}>
-            + Add player
-          </button>
+          <div className="head-actions">
+            <button
+              className="secondary-button"
+              disabled={players.length === 0}
+              onClick={() => {
+                if (window.confirm("Reset every player's form to 5?")) {
+                  run(() => api.resetForms());
+                }
+              }}
+            >
+              Reset forms
+            </button>
+            <button className="primary-button small" onClick={() => setEditing("new")}>
+              + Add player
+            </button>
+          </div>
         </div>
         {players.length === 0 ? (
           <p className="muted">No players yet. Add the first one.</p>

@@ -18,6 +18,10 @@ interface Props {
 export default function MatchDay({ players, matches, run }: Props) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
+  // The first player tapped when swapping two players between the teams.
+  const [picked, setPicked] = useState<{ name: string; side: TeamKey } | null>(
+    null,
+  );
 
   // Matches are newest first. Any unplayed match is shown, not just the
   // newest, so one created earlier (e.g. from the CLI) can still be finished.
@@ -41,6 +45,19 @@ export default function MatchDay({ players, matches, run }: Props) {
 
   if (open) {
     const names = [...open.team1.players, ...open.team2.players].map((p) => p.name);
+
+    function pick(name: string, side: TeamKey) {
+      if (!open) return;
+      if (!picked || picked.side === side) {
+        // First tap, or a different player on the same team: (re)select.
+        setPicked(picked?.name === name ? null : { name, side });
+        return;
+      }
+      const first = picked.name;
+      setPicked(null);
+      act(() => api.swapPlayers(open.id, first, name));
+    }
+
     return (
       <section className="panel">
         <div className="panel-head">
@@ -48,7 +65,12 @@ export default function MatchDay({ players, matches, run }: Props) {
           <span className="muted">{matchDate(open.created_at)}</span>
         </div>
         <BalanceBar team1={open.team1} team2={open.team2} />
-        <Pitch match={open} />
+        <Pitch match={open} picked={picked?.name} onPick={pick} />
+        <p className="pitch-hint muted">
+          {picked
+            ? `Now tap a player on the other team to swap with ${picked.name}.`
+            : "Not happy with the teams? Tap two players on different teams to swap them."}
+        </p>
         <p className="prompt">Who won?</p>
         <div className="result-buttons">
           {(["team1", "team2"] as TeamKey[]).map((key) => (
@@ -66,7 +88,7 @@ export default function MatchDay({ players, matches, run }: Props) {
           className="link-button"
           disabled={busy}
           onClick={async () => {
-            if (await act(() => api.cancelMatch(open.id))) setSelected(new Set(names));
+            if (await act(() => api.deleteMatch(open.id))) setSelected(new Set(names));
           }}
         >
           Cancel this match
