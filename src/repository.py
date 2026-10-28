@@ -18,6 +18,102 @@ from typing import Dict, Iterator, List, Literal, Optional, Sequence
 from .player import ATTRIBUTE_NAMES, Attributes, Player
 from .teams import Team
 
+# --------------------------
+# Errors
+# --------------------------
+
+
+class PlayerNotFoundError(Exception):
+    """
+    Raised when a player name does not exist.
+    """
+
+    def __init__(self, name: str) -> None:
+        """
+        Initializes the PlayerNotFoundError.
+
+        :param name:
+            The name of the unknown player.
+        """
+        self.name = name
+        super().__init__(f"Unknown player '{name}'.")
+
+
+class PlayerHasMatchesError(Exception):
+    """
+    Raised when removing a player who has played in a match.
+    """
+
+    def __init__(self, name: str) -> None:
+        """
+        Initializes the PlayerHasMatchesError.
+
+        :param name:
+            The name of the player.
+        """
+        self.name = name
+        super().__init__(
+            f"Player '{name}' has played in a match and can't be removed."
+        )
+
+
+class PlayerAlreadyExistsError(Exception):
+    """
+    Raised when adding a player whose name is already taken.
+    """
+
+    def __init__(self, name: str) -> None:
+        """
+        Initializes the PlayerAlreadyExistsError.
+
+        :param name:
+            The name that is already taken.
+        """
+        self.name = name
+        super().__init__(f"Player '{name}' already exists.")
+
+
+class MatchNotFoundError(Exception):
+    """
+    Raised when a match ID does not exist.
+    """
+
+    def __init__(self, match_id: Optional[int]) -> None:
+        """
+        Initializes the MatchNotFoundError.
+
+        :param match_id:
+            The unknown match ID, or None if there are no matches at all.
+        """
+        self.match_id = match_id
+        if match_id is None:
+            super().__init__("No matches found. Create teams first.")
+        else:
+            super().__init__(f"Match #{match_id} not found.")
+
+
+class MatchAlreadyRecordedError(Exception):
+    """
+    Raised when recording a result for a match that already has one.
+    """
+
+    def __init__(self, match_id: int, winner: Optional[str] = None) -> None:
+        """
+        Initializes the MatchAlreadyRecordedError.
+
+        :param match_id:
+            The match ID.
+        :param winner:
+            The result that was already recorded, if known.
+        """
+        self.match_id = match_id
+        self.winner = winner
+        message = f"Match #{match_id} already has a result"
+        if winner is not None:
+            message += f" ({winner} won)"
+        super().__init__(message + ".")
+
+
 TeamKey = Literal["team1", "team2"]
 TEAM_KEYS: tuple[TeamKey, ...] = ("team1", "team2")
 
@@ -442,94 +538,3 @@ class SqliteRepository:
             created_at=created_at,
             winner=winner,
         )
-
-
-class PlayerNotFoundError(Exception):
-    """
-    Raised when a player name does not exist.
-    """
-
-    def __init__(self, name: str) -> None:
-        """
-        Initializes the PlayerNotFoundError.
-
-        :param name:
-            The name of the unknown player.
-        """
-        self.name = name
-        super().__init__(f"Unknown player '{name}'.")
-
-
-class PlayerHasMatchesError(Exception):
-    """
-    Raised when removing a player who has played in a match.
-    """
-
-    def __init__(self, name: str) -> None:
-        """
-        Initializes the PlayerHasMatchesError.
-
-        :param name:
-            The name of the player.
-        """
-        self.name = name
-        super().__init__(
-            f"Player '{name}' has played in a match and can't be removed."
-        )
-
-
-class PlayerAlreadyExistsError(Exception):
-    """
-    Raised when adding a player whose name is already taken.
-    """
-
-    def __init__(self, name: str) -> None:
-        """
-        Initializes the PlayerAlreadyExistsError.
-
-        :param name:
-            The name that is already taken.
-        """
-        self.name = name
-        super().__init__(f"Player '{name}' already exists.")
-
-
-class MatchNotFoundError(Exception):
-    """
-    Raised when a match ID does not exist.
-    """
-
-    def __init__(self, match_id: Optional[int]) -> None:
-        """
-        Initializes the MatchNotFoundError.
-
-        :param match_id:
-            The unknown match ID, or None if there are no matches at all.
-        """
-        self.match_id = match_id
-        if match_id is None:
-            super().__init__("No matches found. Create teams first.")
-        else:
-            super().__init__(f"Match #{match_id} not found.")
-
-
-class MatchAlreadyRecordedError(Exception):
-    """
-    Raised when recording a result for a match that already has one.
-    """
-
-    def __init__(self, match_id: int, winner: Optional[str] = None) -> None:
-        """
-        Initializes the MatchAlreadyRecordedError.
-
-        :param match_id:
-            The match ID.
-        :param winner:
-            The result that was already recorded, if known.
-        """
-        self.match_id = match_id
-        self.winner = winner
-        message = f"Match #{match_id} already has a result"
-        if winner is not None:
-            message += f" ({winner} won)"
-        super().__init__(message + ".")

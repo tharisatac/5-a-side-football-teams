@@ -22,6 +22,28 @@ from .repository import (
 )
 from .teams import balance_teams
 
+# --------------------------
+# Errors
+# --------------------------
+
+
+class InvalidAttrError(Exception):
+    """
+    Raised when an invalid attribute is passed in.
+    """
+
+    def __init__(self, attr: str):
+        """
+        Initializes the InvalidAttrError.
+
+        :param attr:
+            The invalid attribute.
+
+        """
+        self.attr = attr
+        super().__init__(f"Invalid attribute '{attr}' passed in.")
+
+
 UPDATABLE_FIELDS = ATTRIBUTE_NAMES + ("form",)
 
 
@@ -193,25 +215,3 @@ def record_result(
     repo.record_result(match_id, winner, updated)
     match.winner = winner
     return match
-
-
-# --------------------------
-# Errors
-# --------------------------
-
-
-class InvalidAttrError(Exception):
-    """
-    Raised when an invalid attribute is passed in.
-    """
-
-    def __init__(self, attr: str):
-        """
-        Initializes the InvalidAttrError.
-
-        :param attr:
-            The invalid attribute.
-
-        """
-        self.attr = attr
-        super().__init__(f"Invalid attribute '{attr}' passed in.")

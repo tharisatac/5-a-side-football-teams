@@ -13,6 +13,47 @@ from typing import List, Optional, Sequence, Tuple
 
 from .player import Player
 
+# --------------------------
+# Errors
+# --------------------------
+
+
+class DuplicatePlayerError(Exception):
+    """
+    Raised when a duplicate player is added during team creation.
+    """
+
+    def __init__(self, name: str) -> None:
+        """
+        Initializes the DuplicatePlayerError.
+
+        :param name:
+            The name of the player that was given more than once.
+        """
+        self.name = name
+
+        super().__init__(f"Duplicate player added '{self.name}'")
+
+
+class NotEnoughPlayersError(Exception):
+    """
+    Raised when fewer than 2 players are given to create teams.
+    """
+
+    def __init__(self, num_players: int) -> None:
+        """
+        Initializes the NotEnoughPlayersError.
+
+        :param num_players:
+            The total number of players provided.
+        """
+        self.num_players = num_players
+        super().__init__(
+            f"At least 2 players are needed to create teams, got "
+            f"{num_players}."
+        )
+
+
 LARGE_TEAM_BOOST = 1.2
 
 
@@ -188,39 +229,3 @@ def _team_rating_diff(team_1: Team, team_2: Team) -> float:
         The second team.
     """
     return abs(team_1.get_overall_rating() - team_2.get_overall_rating())
-
-
-class DuplicatePlayerError(Exception):
-    """
-    Raised when a duplicate player is added during team creation.
-    """
-
-    def __init__(self, name: str) -> None:
-        """
-        Initializes the DuplicatePlayerError.
-
-        :param name:
-            The name of the player that was given more than once.
-        """
-        self.name = name
-
-        super().__init__(f"Duplicate player added '{self.name}'")
-
-
-class NotEnoughPlayersError(Exception):
-    """
-    Raised when fewer than 2 players are given to create teams.
-    """
-
-    def __init__(self, num_players: int) -> None:
-        """
-        Initializes the NotEnoughPlayersError.
-
-        :param num_players:
-            The total number of players provided.
-        """
-        self.num_players = num_players
-        super().__init__(
-            f"At least 2 players are needed to create teams, got "
-            f"{num_players}."
-        )
