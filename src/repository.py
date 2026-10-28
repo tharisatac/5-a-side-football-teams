@@ -115,7 +115,7 @@ class SqliteRepository:
             with self._connect() as conn:
                 conn.execute(
                     f"INSERT INTO players ({columns}) VALUES ({placeholders})",
-                    _player_values(player),
+                    self._player_values(player),
                 )
         except sqlite3.IntegrityError as exc:
             if "UNIQUE constraint failed: players.name" in str(exc):
@@ -135,7 +135,7 @@ class SqliteRepository:
                 "WHERE name = ?",
                 (name,),
             ).fetchone()
-        return None if row is None else _row_to_player(row)
+        return None if row is None else self._row_to_player(row)
 
     def list_players(self) -> List[Player]:
         """
@@ -146,7 +146,7 @@ class SqliteRepository:
                 f"SELECT {', '.join(_PLAYER_COLUMNS)} FROM players "
                 "ORDER BY id"
             ).fetchall()
-        return [_row_to_player(row) for row in rows]
+        return [self._row_to_player(row) for row in rows]
 
     def update_player(self, player: Player) -> None:
         """
@@ -162,7 +162,7 @@ class SqliteRepository:
         with self._connect() as conn:
             cur = conn.execute(
                 f"UPDATE players SET {assignments} WHERE name = ?",
-                _player_values(player)[1:] + (player.name,),
+                self._player_values(player)[1:] + (player.name,),
             )
             if cur.rowcount == 0:
                 raise PlayerNotFoundError(player.name)
@@ -241,7 +241,7 @@ class SqliteRepository:
                         f"SELECT ?, id, ?, {placeholders} "
                         "FROM players WHERE name = ?",
                         (match_id, team_number)
-                        + _player_values(player)[1:]
+                        + self._player_values(player)[1:]
                         + (player.name,),
                     )
                     if cur.rowcount == 0:
@@ -259,7 +259,7 @@ class SqliteRepository:
             row = conn.execute(
                 "SELECT * FROM matches WHERE id = ?", (match_id,)
             ).fetchone()
-            return None if row is None else _load_match(conn, row)
+            return None if row is None else self._load_match(conn, row)
 
     def get_latest_match(self) -> Optional[Match]:
         """
@@ -269,7 +269,7 @@ class SqliteRepository:
             row = conn.execute(
                 "SELECT * FROM matches ORDER BY id DESC LIMIT 1"
             ).fetchone()
-            return None if row is None else _load_match(conn, row)
+            return None if row is None else self._load_match(conn, row)
 
     def cancel_match(self, match_id: int) -> None:
         """
@@ -290,7 +290,7 @@ class SqliteRepository:
                 (match_id,),
             )
             if cur.rowcount == 0:
-                _raise_for_unchangeable_match(conn, match_id)
+                self._raise_for_unchangeable_match(conn, match_id)
 
     def record_result(
         self, match_id: int, winner: TeamKey, players: Sequence[Player]
@@ -319,7 +319,7 @@ class SqliteRepository:
                 (_TEAM_NUMBERS[winner], match_id),
             )
             if cur.rowcount == 0:
-                _raise_for_unchangeable_match(conn, match_id)
+                self._raise_for_unchangeable_match(conn, match_id)
 
             conn.executemany(
                 "UPDATE players SET form = ? WHERE name = ?",
@@ -347,97 +347,101 @@ class SqliteRepository:
         with self._connect() as conn:
             conn.executescript(SCHEMA_SQL)
 
+    # --------------------------
+    # Helpers
+    # --------------------------
 
-def _raise_for_unchangeable_match(
-    conn: sqlite3.Connection, match_id: int
-) -> None:
-    """
-    Called when an update or delete limited to `winner IS NULL` matched no
-    rows: raises the error explaining why.
+    def _raise_for_unchangeable_match(
+        self, conn: sqlite3.Connection, match_id: int
+    ) -> None:
+        """
+        Called when an update or delete limited to `winner IS NULL` matched no
+        rows: raises the error explaining why.
 
-    :param conn:
-        The open connection.
-    :param match_id:
-        The match ID.
+        :param conn:
+            The open connection.
+        :param match_id:
+            The match ID.
 
-    :raises:
-        MatchNotFoundError: If the match does not exist.
-        MatchAlreadyRecordedError: If the match already has a result.
-    """
-    row = conn.execute(
-        "SELECT winner FROM matches WHERE id = ?", (match_id,)
-    ).fetchone()
-    if row is None:
-        raise MatchNotFoundError(match_id)
-    raise MatchAlreadyRecordedError(match_id, _WINNERS[row["winner"]])
+        :raises:
+            MatchNotFoundError: If the match does not exist.
+            MatchAlreadyRecordedError: If the match already has a result.
+        """
+        row = conn.execute(
+            "SELECT winner FROM matches WHERE id = ?", (match_id,)
+        ).fetchone()
+        if row is None:
+            raise MatchNotFoundError(match_id)
+        raise MatchAlreadyRecordedError(match_id, _WINNERS[row["winner"]])
 
+    @staticmethod
+    def _player_values(player: Player) -> tuple:
+        """
+        Returns the player's values in `_PLAYER_COLUMNS` order.
 
-def _player_values(player: Player) -> tuple:
-    """
-    Returns the player's values in `_PLAYER_COLUMNS` order.
+        :param player:
+            The player.
+        """
+        values = player.attributes.to_values()
+        return (
+            (player.name,)
+            + tuple(values[name] for name in ATTRIBUTE_NAMES)
+            + (player.form,)
+        )
 
-    :param player:
-        The player.
-    """
-    values = player.attributes.to_values()
-    return (
-        (player.name,)
-        + tuple(values[name] for name in ATTRIBUTE_NAMES)
-        + (player.form,)
-    )
+    @staticmethod
+    def _row_to_player(row: sqlite3.Row) -> Player:
+        """
+        Builds a Player from a row containing `_PLAYER_COLUMNS`.
 
+        :param row:
+            A row from `players` or `match_players` (joined with the name).
+        """
+        attributes = Attributes.from_values(
+            {name: row[name] for name in ATTRIBUTE_NAMES}
+        )
+        return Player(
+            name=row["name"], attributes=attributes, form=row["form"]
+        )
 
-def _row_to_player(row: sqlite3.Row) -> Player:
-    """
-    Builds a Player from a row containing `_PLAYER_COLUMNS`.
+    def _load_match(self, conn: sqlite3.Connection, row: sqlite3.Row) -> Match:
+        """
+        Builds a Match from a `matches` row by loading its players. Skills and
+        form come from the snapshot taken when the match was created.
 
-    :param row:
-        A row from `players` or `match_players` (joined with the name).
-    """
-    attributes = Attributes.from_values(
-        {name: row[name] for name in ATTRIBUTE_NAMES}
-    )
-    return Player(name=row["name"], attributes=attributes, form=row["form"])
+        :param conn:
+            The open connection.
+        :param row:
+            A row from `matches`.
+        """
+        columns = ", ".join(
+            ["p.name"] + [f"mp.{col}" for col in _PLAYER_COLUMNS[1:]]
+        )
+        player_rows = conn.execute(
+            f"SELECT mp.team_number, {columns} FROM match_players mp "
+            "JOIN players p ON p.id = mp.player_id "
+            "WHERE mp.match_id = ? ORDER BY mp.rowid",
+            (row["id"],),
+        ).fetchall()
 
+        team1 = Team([], row["team_1_bonus"])
+        team2 = Team([], row["team_2_bonus"])
+        for player_row in player_rows:
+            team = team1 if player_row["team_number"] == 1 else team2
+            team.players.append(self._row_to_player(player_row))
 
-def _load_match(conn: sqlite3.Connection, row: sqlite3.Row) -> Match:
-    """
-    Builds a Match from a `matches` row by loading its players. Skills and
-    form come from the snapshot taken when the match was created.
-
-    :param conn:
-        The open connection.
-    :param row:
-        A row from `matches`.
-    """
-    columns = ", ".join(
-        ["p.name"] + [f"mp.{col}" for col in _PLAYER_COLUMNS[1:]]
-    )
-    player_rows = conn.execute(
-        f"SELECT mp.team_number, {columns} FROM match_players mp "
-        "JOIN players p ON p.id = mp.player_id "
-        "WHERE mp.match_id = ? ORDER BY mp.rowid",
-        (row["id"],),
-    ).fetchall()
-
-    team1 = Team([], row["team_1_bonus"])
-    team2 = Team([], row["team_2_bonus"])
-    for player_row in player_rows:
-        team = team1 if player_row["team_number"] == 1 else team2
-        team.players.append(_row_to_player(player_row))
-
-    winner = None if row["winner"] is None else _WINNERS[row["winner"]]
-    # SQLite's CURRENT_TIMESTAMP is UTC text, e.g. "2026-10-28 14:05:00".
-    created_at = datetime.fromisoformat(row["created_at"]).replace(
-        tzinfo=timezone.utc
-    )
-    return Match(
-        id=row["id"],
-        team1=team1,
-        team2=team2,
-        created_at=created_at,
-        winner=winner,
-    )
+        winner = None if row["winner"] is None else _WINNERS[row["winner"]]
+        # SQLite's CURRENT_TIMESTAMP is UTC text, e.g. "2026-10-28 14:05:00".
+        created_at = datetime.fromisoformat(row["created_at"]).replace(
+            tzinfo=timezone.utc
+        )
+        return Match(
+            id=row["id"],
+            team1=team1,
+            team2=team2,
+            created_at=created_at,
+            winner=winner,
+        )
 
 
 class PlayerNotFoundError(Exception):
