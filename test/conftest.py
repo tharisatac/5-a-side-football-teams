@@ -7,7 +7,7 @@ from typing import List
 import pytest
 
 from src.player import Attributes, Player
-from src.sqlite_repository import SqliteRepository
+from src.repository import SqliteRepository
 
 
 def make_player(name: str, score: float = 7, form: int = 5) -> Player:

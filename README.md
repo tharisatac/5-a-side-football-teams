@@ -51,8 +51,8 @@ larger team gets a 1.2x rating boost.
 src/cli.py                 argparse commands -> services
 src/services.py            use-cases: create_match, record_result, ...
 src/teams.py, player.py    pure domain logic (no storage, no printing)
-src/repository.py          Repository interface, Match, storage errors
-src/sqlite_repository.py   SQLite implementation (schema in schema.sql)
+src/repository.py          SQLite storage, Match, storage errors
+                           (tables in schema.sql)
 src/csv_io.py              CSV import/export
 ```
 

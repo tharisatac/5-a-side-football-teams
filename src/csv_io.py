@@ -1,17 +1,17 @@
 """
-This module imports and exports players as CSV files, using any `Repository`.
+This module imports and exports players as CSV files.
 """
 
 import csv
 from typing import List, Tuple
 
 from .player import ATTRIBUTE_NAMES, DEFAULT_FORM, Attributes, Player
-from .repository import Repository
+from .repository import SqliteRepository
 
 CSV_HEADERS = ("name",) + ATTRIBUTE_NAMES + ("form",)
 
 
-def export_players(repo: Repository, filename: str) -> int:
+def export_players(repo: SqliteRepository, filename: str) -> int:
     """
     Writes all players to a CSV file.
 
@@ -41,7 +41,7 @@ def export_players(repo: Repository, filename: str) -> int:
 
 
 def import_players(
-    repo: Repository, filename: str
+    repo: SqliteRepository, filename: str
 ) -> Tuple[int, List[Tuple[str, Exception]]]:
     """
     Adds every player in a CSV file. A bad row is skipped rather than stopping

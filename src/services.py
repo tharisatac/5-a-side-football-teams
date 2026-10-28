@@ -14,7 +14,7 @@ from .repository import (
     MatchAlreadyRecordedError,
     MatchNotFoundError,
     PlayerNotFoundError,
-    Repository,
+    SqliteRepository,
     TeamKey,
 )
 from .teams import balance_teams
@@ -22,7 +22,7 @@ from .teams import balance_teams
 UPDATABLE_FIELDS = ATTRIBUTE_NAMES + ("form",)
 
 
-def create_match(repo: Repository, player_names: Sequence[str]) -> Match:
+def create_match(repo: SqliteRepository, player_names: Sequence[str]) -> Match:
     """
     Looks up the named players, balances them into two teams and stores the
     result as a new match.
@@ -55,7 +55,9 @@ def create_match(repo: Repository, player_names: Sequence[str]) -> Match:
     return match
 
 
-def record_result(repo: Repository, match_id: int, winner: TeamKey) -> Match:
+def record_result(
+    repo: SqliteRepository, match_id: int, winner: TeamKey
+) -> Match:
     """
     Records which team won a match and updates every player's current form:
     +1 for the winners and -1 for the losers. The match's own snapshot of
@@ -101,7 +103,7 @@ def record_result(repo: Repository, match_id: int, winner: TeamKey) -> Match:
     return match
 
 
-def cancel_match(repo: Repository, match_id: int) -> Match:
+def cancel_match(repo: SqliteRepository, match_id: int) -> Match:
     """
     Deletes a match that hasn't been played, e.g. to pick teams again. A
     match with a result can't be cancelled, so history stays complete.
@@ -129,7 +131,7 @@ def cancel_match(repo: Repository, match_id: int) -> Match:
 
 
 def update_player_field(
-    repo: Repository, name: str, field: str, value: int
+    repo: SqliteRepository, name: str, field: str, value: int
 ) -> Player:
     """
     Sets one attribute (1-10) or the form (0-10) of a player.

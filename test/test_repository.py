@@ -6,15 +6,13 @@ from test.conftest import make_player
 import pytest
 
 from src.repository import (
+    DEFAULT_DB_PATH,
+    PROJECT_ROOT,
     MatchAlreadyRecordedError,
     MatchNotFoundError,
     PlayerAlreadyExistsError,
     PlayerHasMatchesError,
     PlayerNotFoundError,
-)
-from src.sqlite_repository import (
-    DEFAULT_DB_PATH,
-    PROJECT_ROOT,
     SqliteRepository,
 )
 from src.teams import Team

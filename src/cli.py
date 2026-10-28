@@ -13,6 +13,7 @@ from typing import List, Optional
 from . import csv_io, services
 from .player import ATTRIBUTE_NAMES, DEFAULT_FORM, Attributes, Player
 from .repository import (
+    DEFAULT_DB_PATH,
     TEAM_KEYS,
     Match,
     MatchAlreadyRecordedError,
@@ -20,9 +21,8 @@ from .repository import (
     PlayerAlreadyExistsError,
     PlayerHasMatchesError,
     PlayerNotFoundError,
-    Repository,
+    SqliteRepository,
 )
-from .sqlite_repository import DEFAULT_DB_PATH, SqliteRepository
 from .teams import DuplicatePlayerError, NotEnoughPlayersError, Team
 
 # Errors caused by user input. They are printed as a message; anything else
@@ -46,7 +46,7 @@ USER_ERRORS = (
 # --------------------------
 
 
-def add_player(repo: Repository, args: argparse.Namespace) -> None:
+def add_player(repo: SqliteRepository, args: argparse.Namespace) -> None:
     """
     Adds a new player to the database.
     Usage: player add <player_name> -s <1-10> -d <1-10> ...
@@ -64,7 +64,7 @@ def add_player(repo: Repository, args: argparse.Namespace) -> None:
     print(f"✅ Player '{args.name}' added!")
 
 
-def remove_player(repo: Repository, args: argparse.Namespace) -> None:
+def remove_player(repo: SqliteRepository, args: argparse.Namespace) -> None:
     """
     Removes a player who has never played in a match.
     Usage: player remove <player_name>
@@ -78,7 +78,7 @@ def remove_player(repo: Repository, args: argparse.Namespace) -> None:
     print(f"🗑️ Player '{args.name}' removed.")
 
 
-def update_player(repo: Repository, args: argparse.Namespace) -> None:
+def update_player(repo: SqliteRepository, args: argparse.Namespace) -> None:
     """
     Updates a player's attribute or form.
     Usage: player update <player_name> <attribute> <value>
@@ -102,7 +102,7 @@ def update_player(repo: Repository, args: argparse.Namespace) -> None:
     print(f"🔄 Updated {attribute} of '{args.name}' to {args.value}.")
 
 
-def list_players(repo: Repository, args: argparse.Namespace) -> None:
+def list_players(repo: SqliteRepository, args: argparse.Namespace) -> None:
     """
     Lists all players in the database.
     Usage: player list
@@ -135,7 +135,9 @@ def list_players(repo: Repository, args: argparse.Namespace) -> None:
         )
 
 
-def list_player_attributes(repo: Repository, args: argparse.Namespace) -> None:
+def list_player_attributes(
+    repo: SqliteRepository, args: argparse.Namespace
+) -> None:
     """
     Lists all the attribute values for a given player.
     Usage: player attributes <player_name>
@@ -155,7 +157,7 @@ def list_player_attributes(repo: Repository, args: argparse.Namespace) -> None:
     print(f"⭐ Overall Rating: {player.get_overall_rating(round_num=True)}")
 
 
-def rank_players(repo: Repository, args: argparse.Namespace) -> None:
+def rank_players(repo: SqliteRepository, args: argparse.Namespace) -> None:
     """
     Ranks players based on overall rating or a specific attribute.
 
@@ -211,7 +213,7 @@ def _score(player: Player, attr_name: str) -> float:
     return getattr(player.attributes, attr_name).get_score()
 
 
-def reset_forms(repo: Repository, args: argparse.Namespace) -> None:
+def reset_forms(repo: SqliteRepository, args: argparse.Namespace) -> None:
     """
     Resets all players' forms to the default value.
     Usage: player reset_forms
@@ -230,7 +232,7 @@ def reset_forms(repo: Repository, args: argparse.Namespace) -> None:
 # --------------------------
 
 
-def _get_match(repo: Repository, match_id: Optional[int]) -> Match:
+def _get_match(repo: SqliteRepository, match_id: Optional[int]) -> Match:
     """
     Returns the given match, or the latest one if `match_id` is None.
 
@@ -283,7 +285,7 @@ def _print_team(title: str, team: Team) -> None:
         )
 
 
-def create_teams(repo: Repository, args: argparse.Namespace) -> None:
+def create_teams(repo: SqliteRepository, args: argparse.Namespace) -> None:
     """
     Creates balanced teams from the given player names, as a new match.
     Usage: teams create <player_name> ...
@@ -300,7 +302,9 @@ def create_teams(repo: Repository, args: argparse.Namespace) -> None:
     print("")
 
 
-def record_match_result(repo: Repository, args: argparse.Namespace) -> None:
+def record_match_result(
+    repo: SqliteRepository, args: argparse.Namespace
+) -> None:
     """
     Records a match result and updates players' form.
     Usage: teams result <team1|team2> [--match N]
@@ -319,7 +323,7 @@ def record_match_result(repo: Repository, args: argparse.Namespace) -> None:
     )
 
 
-def cancel_match(repo: Repository, args: argparse.Namespace) -> None:
+def cancel_match(repo: SqliteRepository, args: argparse.Namespace) -> None:
     """
     Deletes a match that hasn't been played.
     Usage: teams cancel [--match N]
@@ -334,7 +338,9 @@ def cancel_match(repo: Repository, args: argparse.Namespace) -> None:
     print(f"🗑️ Cancelled {_match_label(match)}.")
 
 
-def get_team_attributes(repo: Repository, args: argparse.Namespace) -> None:
+def get_team_attributes(
+    repo: SqliteRepository, args: argparse.Namespace
+) -> None:
     """
     Displays the average attributes of a team.
     Usage: teams attributes <team1|team2> [--match N]
@@ -365,7 +371,7 @@ def get_team_attributes(repo: Repository, args: argparse.Namespace) -> None:
         print(f"- {attr.capitalize()}: {avg_rating:.2f}")
 
 
-def get_team_rating(repo: Repository, args: argparse.Namespace) -> None:
+def get_team_rating(repo: SqliteRepository, args: argparse.Namespace) -> None:
     """
     Displays the overall rating of a team.
     Usage: teams rating <team1|team2> [--match N]
@@ -389,7 +395,7 @@ def get_team_rating(repo: Repository, args: argparse.Namespace) -> None:
 # --------------------------
 
 
-def clear_database(repo: Repository, args: argparse.Namespace) -> None:
+def clear_database(repo: SqliteRepository, args: argparse.Namespace) -> None:
     """
     Clears all players and matches from the database.
     Usage: database clear
@@ -403,7 +409,7 @@ def clear_database(repo: Repository, args: argparse.Namespace) -> None:
     print("🗑️ All data has been removed from the database.")
 
 
-def export_csv(repo: Repository, args: argparse.Namespace) -> None:
+def export_csv(repo: SqliteRepository, args: argparse.Namespace) -> None:
     """
     Exports the players to a CSV file.
     Usage: database export [filename]
@@ -417,7 +423,7 @@ def export_csv(repo: Repository, args: argparse.Namespace) -> None:
     print(f"✅ Exported {count} players to '{args.filename}'.")
 
 
-def import_csv(repo: Repository, args: argparse.Namespace) -> None:
+def import_csv(repo: SqliteRepository, args: argparse.Namespace) -> None:
     """
     Imports players from a CSV file into the database.
     Usage: database import [filename]

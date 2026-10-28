@@ -3,8 +3,7 @@ import csv
 import pytest
 
 from src import csv_io
-from src.repository import PlayerAlreadyExistsError
-from src.sqlite_repository import SqliteRepository
+from src.repository import PlayerAlreadyExistsError, SqliteRepository
 
 
 def test_export_then_import_round_trip(repo, stored_players, tmp_path):
