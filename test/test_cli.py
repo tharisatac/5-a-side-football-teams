@@ -1,24 +1,31 @@
 import csv
 import os
 import subprocess
+import sys
+from pathlib import Path
 
 import pytest
 
-CLI_COMMAND = "./run"
-TEST_DB_PATH = "test_football.db"
+# Run main.py with the same Python that runs pytest, from the project root.
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+CLI_COMMAND = [sys.executable, str(PROJECT_ROOT / "main.py")]
 
 
 # -------------------------------------------------------------------
 # Helper functions
 # -------------------------------------------------------------------
-def run_cli_command(args, capture_output=True):
+def run_cli_command(args, check=True):
     """
-    Runs a CLI command using subprocess.run.
-    Returns the CompletedProcess.
+    Runs a CLI command using subprocess.run against the test database.
+    Returns the CompletedProcess. With check=True, a non-zero exit code fails
+    the test.
     """
-    command = [CLI_COMMAND] + args
     return subprocess.run(
-        command, capture_output=capture_output, text=True, check=True
+        CLI_COMMAND + args,
+        capture_output=True,
+        text=True,
+        check=check,
+        env={**os.environ, "FOOTBALL_DB": os.environ["TEST_FOOTBALL_DB"]},
     )
 
 
@@ -52,18 +59,11 @@ def add_player_cli(
 # Fixtures
 # -------------------------------------------------------------------
 @pytest.fixture(scope="function")
-def reset_database():
+def reset_database(tmp_path, monkeypatch):
     """
-    Ensures a clean test database before running each CLI test.
+    Points each CLI test at a new, empty database in a temporary directory.
     """
-    os.environ["FOOTBALL_DB"] = TEST_DB_PATH
-    if os.path.exists(TEST_DB_PATH):
-        os.remove(TEST_DB_PATH)
-    # Clear the database via CLI command.
-    run_cli_command(["database", "clear"], capture_output=False)
-    yield
-    if os.path.exists(TEST_DB_PATH):
-        os.remove(TEST_DB_PATH)
+    monkeypatch.setenv("TEST_FOOTBALL_DB", str(tmp_path / "test.db"))
 
 
 # -------------------------------------------------------------------
@@ -127,15 +127,68 @@ def test_remove_player(reset_database):
     assert "TestPlayer" not in list_result.stdout
 
 
+def test_remove_player_who_has_played(reset_database):
+    """
+    Tests that a player who is in a match can't be removed.
+    """
+    for player in ["Alice", "Bob"]:
+        add_player_cli(player, 7, 7, 7, 7, 7, 7)
+    run_cli_command(["teams", "create", "Alice", "Bob"])
+
+    result = run_cli_command(["player", "remove", "Alice"], check=False)
+    assert result.returncode == 1
+    assert "has played in a match" in result.stdout
+
+
+def test_cancel_match(reset_database):
+    """
+    Tests cancelling the latest match, which frees its players for removal.
+    """
+    for player in ["Alice", "Bob"]:
+        add_player_cli(player, 7, 7, 7, 7, 7, 7)
+    run_cli_command(["teams", "create", "Alice", "Bob"])
+
+    result = run_cli_command(["teams", "cancel"])
+    assert "🗑️ Cancelled match #1, " in result.stdout
+
+    run_cli_command(["player", "remove", "Alice"])
+
+
+def test_cancel_recorded_match(reset_database):
+    """
+    Tests that a played match can't be cancelled.
+    """
+    for player in ["Alice", "Bob"]:
+        add_player_cli(player, 7, 7, 7, 7, 7, 7)
+    run_cli_command(["teams", "create", "Alice", "Bob"])
+    run_cli_command(["teams", "result", "team1"])
+
+    result = run_cli_command(["teams", "cancel"], check=False)
+    assert result.returncode == 1
+    assert "already has a result" in result.stdout
+
+
 def test_update_player(reset_database):
     """
     Tests updating a player's attribute via the CLI.
     """
     add_player_cli("TestPlayer", 8, 7, 9, 6, 9, 5)
     result = run_cli_command(
-        ["player", "update", "TestPlayer", "shooting", "95"]
+        ["player", "update", "TestPlayer", "shooting", "9"]
     )
-    assert "🔄 Updated shooting of 'TestPlayer' to 95." in result.stdout
+    assert "🔄 Updated shooting of 'TestPlayer' to 9." in result.stdout
+
+
+def test_update_player_out_of_range(reset_database):
+    """
+    Tests that an out-of-range value is rejected with a non-zero exit code.
+    """
+    add_player_cli("TestPlayer", 8, 7, 9, 6, 9, 5)
+    result = run_cli_command(
+        ["player", "update", "TestPlayer", "shooting", "95"], check=False
+    )
+    assert result.returncode == 1
+    assert "Must be between 1 and 10" in result.stdout
 
 
 def test_rank_players_all(reset_database):
@@ -176,7 +229,8 @@ def test_rank_invalid_attribute(reset_database):
     Tests that 'player rank invalid_attr' outputs an error message.
     """
     add_player_cli("Player1", 8, 7, 8, 6, 8, 5)
-    result = run_cli_command(["player", "rank", "invalid_attr"])
+    result = run_cli_command(["player", "rank", "invalid_attr"], check=False)
+    assert result.returncode == 1
     assert "Invalid attribute" in result.stdout
 
 
@@ -218,6 +272,57 @@ def test_record_match_result(reset_database):
     assert "✅ Match recorded: team1 won!" in result.stdout
 
 
+def test_record_match_result_twice(reset_database):
+    """
+    Tests that recording the same match twice is rejected.
+    """
+    players = ["Alice", "Bob"]
+    for player in players:
+        add_player_cli(player, 7, 7, 7, 7, 7, 7)
+    run_cli_command(["teams", "create"] + players)
+    run_cli_command(["teams", "result", "team1"])
+
+    result = run_cli_command(["teams", "result", "team1"], check=False)
+    assert result.returncode == 1
+    assert "already has a result" in result.stdout
+
+
+def test_record_result_for_match_id(reset_database):
+    """
+    Tests recording the result of an older match with --match.
+    """
+    players = ["Alice", "Bob"]
+    for player in players:
+        add_player_cli(player, 7, 7, 7, 7, 7, 7)
+    first = run_cli_command(["teams", "create"] + players)
+    assert "(match #1, " in first.stdout
+    run_cli_command(["teams", "create"] + players)
+
+    result = run_cli_command(["teams", "result", "team2", "--match", "1"])
+    assert "✅ Match recorded: team2 won! (match #1, " in result.stdout
+
+
+def test_create_teams_unknown_player(reset_database):
+    """
+    Tests that an unknown player name gives an error and exit code 1.
+    """
+    add_player_cli("Alice", 7, 7, 7, 7, 7, 7)
+    result = run_cli_command(
+        ["teams", "create", "Alice", "Nobody"], check=False
+    )
+    assert result.returncode == 1
+    assert "Unknown player 'Nobody'" in result.stdout
+
+
+def test_result_without_match(reset_database):
+    """
+    Tests that recording a result before creating teams gives an error.
+    """
+    result = run_cli_command(["teams", "result", "team1"], check=False)
+    assert result.returncode == 1
+    assert "No matches found" in result.stdout
+
+
 def test_export_csv(tmp_path, reset_database):
     """
     Tests the CSV export functionality.
@@ -232,7 +337,6 @@ def test_export_csv(tmp_path, reset_database):
         reader = csv.reader(f)
         rows = list(reader)
     expected_headers = [
-        "id",
         "name",
         "shooting",
         "dribbling",

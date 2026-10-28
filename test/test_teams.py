@@ -3,7 +3,14 @@ import random
 import pytest
 
 from src.player import Attributes, Player
-from src.teams import InvalidTeamSizeError, Team, TeamCreator
+from src.teams import (
+    LARGE_TEAM_BOOST,
+    DuplicatePlayerError,
+    NotEnoughPlayersError,
+    Team,
+    balance_teams,
+    improve_balance,
+)
 
 
 @pytest.fixture
@@ -92,10 +99,9 @@ def sample_players():
 
 def test_create_balanced_teams(sample_players):
     """
-    Tests that TeamCreator correctly creates balanced teams.
+    Tests that balance_teams correctly creates balanced teams.
     """
-    team_creator = TeamCreator(sample_players, 4, 4)
-    team1, team2 = team_creator.create_balanced_teams()
+    team1, team2 = balance_teams(sample_players)
 
     assert len(team1.players) == 4
     assert len(team2.players) == 4
@@ -104,12 +110,37 @@ def test_create_balanced_teams(sample_players):
     ), "Teams should be balanced"
 
 
-def test_invalid_team_size_error(sample_players):
+@pytest.mark.parametrize("num_players", [0, 1])
+def test_not_enough_players_error(sample_players, num_players):
     """
-    Tests that an error is raised when team sizes don't match available players.
+    Tests that an error is raised when there are fewer than 2 players.
     """
-    with pytest.raises(InvalidTeamSizeError):
-        TeamCreator(sample_players, 4, 3)  # Total does not match player count
+    with pytest.raises(NotEnoughPlayersError):
+        balance_teams(sample_players[:num_players])
+
+
+@pytest.mark.parametrize("copies", [2, 3])
+def test_duplicate_player_error(sample_players, copies):
+    """
+    Tests that an error is raised when a player is given more than once.
+    """
+    with pytest.raises(DuplicatePlayerError) as exc:
+        balance_teams(sample_players[:2] + [sample_players[0]] * (copies - 1))
+
+    assert exc.value.name == sample_players[0].name
+
+
+def test_balance_teams_does_not_modify_input(sample_players):
+    """
+    Tests that balance_teams leaves the given list and players untouched.
+    """
+    original_order = list(sample_players)
+    original_forms = [p.form for p in sample_players]
+
+    balance_teams(sample_players)
+
+    assert sample_players == original_order
+    assert [p.form for p in sample_players] == original_forms
 
 
 def test_apply_team_bonus():
@@ -134,13 +165,12 @@ def test_apply_team_bonus():
         for i in range(7)
     ]
 
-    team_creator = TeamCreator(sample_players, 4, 3)  # Unequal team sizes
-    team1, team2 = team_creator.create_balanced_teams()
+    team1, team2 = balance_teams(sample_players)  # 7 players: 3 v 4
 
-    if len(team1.players) > len(team2.players):
-        assert team1.bonus > 1.0
-    elif len(team2.players) > len(team1.players):
-        assert team2.bonus > 1.0
+    assert len(team1.players) == 3
+    assert len(team2.players) == 4
+    assert team1.bonus == 1.0
+    assert team2.bonus == LARGE_TEAM_BOOST
 
 
 def test_adjust_teams_for_fairness():
@@ -187,20 +217,19 @@ def test_adjust_teams_for_fairness():
     ]
 
     # Check initial imbalance
-    team_creator = TeamCreator(strong_players + weak_players, 4, 4)
-    team_creator.team_1.players = (
-        strong_players  # Force team 1 to be all strong
-    )
-    team_creator.team_2.players = weak_players  # Force team 2 to be all weak
+    strong_team = Team(list(strong_players))  # Team 1 is all strong
+    weak_team = Team(list(weak_players))  # Team 2 is all weak
 
     assert (
-        team_creator.team_1.get_overall_rating()
-        > team_creator.team_2.get_overall_rating() + 30
+        strong_team.get_overall_rating() > weak_team.get_overall_rating() + 30
     ), "Initial teams should be highly imbalanced"
 
     # Run the fairness adjustment
-    team_creator._adjust_teams_for_fairness()
-    balanced_team1, balanced_team2 = team_creator.team_1, team_creator.team_2
+    balanced_team1, balanced_team2 = improve_balance(strong_team, weak_team)
+
+    # The input teams must not be modified
+    assert strong_team.players == strong_players
+    assert weak_team.players == weak_players
 
     # Ensure that the new teams are more balanced
     new_diff = abs(
@@ -221,8 +250,7 @@ def test_adjust_teams_for_fairness_is_deterministic(sample_players):
     even if players are swapped before recalculating.
     """
     # Create the initial best-balanced teams
-    team_creator = TeamCreator(sample_players, 4, 4)
-    team1, team2 = team_creator.create_balanced_teams()
+    team1, team2 = balance_teams(sample_players)
 
     initial_balance_diff = abs(
         team1.get_overall_rating() - team2.get_overall_rating()
@@ -232,8 +260,7 @@ def test_adjust_teams_for_fairness_is_deterministic(sample_players):
     random.shuffle(sample_players)
 
     # Recalculate the teams after introducing imbalance
-    new_team_creator = TeamCreator(sample_players, 4, 4)
-    new_team1, new_team2 = new_team_creator.create_balanced_teams()
+    new_team1, new_team2 = balance_teams(sample_players)
 
     final_balance_diff = abs(
         new_team1.get_overall_rating() - new_team2.get_overall_rating()
@@ -291,8 +318,7 @@ def test_create_minimum_teams():
         ),
     ]
 
-    team_creator = TeamCreator(min_players, 1, 1)
-    team1, team2 = team_creator.create_balanced_teams()
+    team1, team2 = balance_teams(min_players)
 
     assert len(team1.players) == 1
     assert len(team2.players) == 1
@@ -300,7 +326,7 @@ def test_create_minimum_teams():
 
 def test_create_unbalanced_teams():
     """
-    Tests that unbalanced teams (3v2) still apply the proper bonus.
+    Tests that unbalanced teams (2v3) still apply the proper bonus.
     """
     players = [
         Player(
@@ -320,10 +346,9 @@ def test_create_unbalanced_teams():
         for i in range(5)
     ]
 
-    team_creator = TeamCreator(players, 3, 2)
-    team1, team2 = team_creator.create_balanced_teams()
+    team1, team2 = balance_teams(players)  # 5 players: 2 v 3
 
-    if len(team1.players) > len(team2.players):
-        assert team1.bonus > 1.0, "Bonus should be applied to larger team"
-    elif len(team2.players) > len(team1.players):
-        assert team2.bonus > 1.0, "Bonus should be applied to larger team"
+    assert len(team1.players) == 2
+    assert len(team2.players) == 3
+    assert team1.bonus == 1.0
+    assert team2.bonus == LARGE_TEAM_BOOST, "Bonus should go to larger team"

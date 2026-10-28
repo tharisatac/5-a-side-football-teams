@@ -172,4 +172,7 @@ cython_debug/
 
 # Ignore SQLite databases
 football.db
-test_football.db
+football.db.bak*
+
+# CSV exports contain real player data
+players_export.csv
