@@ -186,7 +186,7 @@ def test_record_result_invalid_winner(repo, stored_players):
 
 
 # -------------------------------------------------------------------
-# update_player_field
+# update_player
 # -------------------------------------------------------------------
 
 
@@ -194,7 +194,7 @@ def test_update_attribute(repo, stored_players):
     """
     Tests updating one attribute leaves the others alone.
     """
-    services.update_player_field(repo, "Player 1", "shooting", 9)
+    services.update_player(repo, "Player 1", {"shooting": 9})
 
     player = repo.get_player("Player 1")
     assert player is not None
@@ -206,7 +206,7 @@ def test_update_form(repo, stored_players):
     """
     Tests updating form.
     """
-    services.update_player_field(repo, "Player 1", "form", 10)
+    services.update_player(repo, "Player 1", {"form": 10})
 
     player = repo.get_player("Player 1")
     assert player is not None and player.form == 10
@@ -217,7 +217,7 @@ def test_update_invalid_attribute(repo, stored_players):
     Tests that an unknown attribute name raises.
     """
     with pytest.raises(services.InvalidAttrError) as exc:
-        services.update_player_field(repo, "Player 1", "invalid-attr", 9)
+        services.update_player(repo, "Player 1", {"invalid-attr": 9})
 
     assert "Invalid attribute 'invalid-attr' passed in." in str(exc.value)
 
@@ -231,7 +231,33 @@ def test_update_out_of_range(repo, stored_players, field, value):
     Tests that out-of-range values are rejected and nothing is saved.
     """
     with pytest.raises(ValueError):
-        services.update_player_field(repo, "Player 1", field, value)
+        services.update_player(repo, "Player 1", {field: value})
+
+    assert repo.get_player("Player 1") == stored_players[0]
+
+
+def test_update_several_fields_at_once(repo, stored_players):
+    """
+    Tests changing attributes and form in one call.
+    """
+    player = services.update_player(
+        repo, "Player 1", {"shooting": 2, "passing": 3, "form": 9}
+    )
+
+    assert repo.get_player("Player 1") == player
+    assert player.attributes.shooting.score == 2
+    assert player.attributes.passing.score == 3
+    assert player.form == 9
+
+
+def test_update_saves_nothing_if_one_value_is_invalid(repo, stored_players):
+    """
+    Tests that a valid change isn't saved alongside an invalid one.
+    """
+    with pytest.raises(ValueError):
+        services.update_player(
+            repo, "Player 1", {"shooting": 2, "passing": 11}
+        )
 
     assert repo.get_player("Player 1") == stored_players[0]
 
@@ -241,7 +267,7 @@ def test_update_unknown_player(repo):
     Tests that updating an unknown player raises.
     """
     with pytest.raises(PlayerNotFoundError):
-        services.update_player_field(repo, "Nobody", "shooting", 5)
+        services.update_player(repo, "Nobody", {"shooting": 5})
 
 
 # -------------------------------------------------------------------

@@ -98,7 +98,7 @@ def update_player(repo: SqliteRepository, args: argparse.Namespace) -> None:
         "g": "goalkeeping",
     }
     attribute = attributes_map.get(args.attribute, args.attribute)
-    services.update_player_field(repo, args.name, attribute, args.value)
+    services.update_player(repo, args.name, {attribute: args.value})
     print(f"🔄 Updated {attribute} of '{args.name}' to {args.value}.")
 
 

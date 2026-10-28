@@ -357,6 +357,16 @@ class SqliteRepository:
             ).fetchone()
             return None if row is None else self._load_match(conn, row)
 
+    def list_matches(self) -> List[Match]:
+        """
+        Returns all matches, newest first.
+        """
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM matches ORDER BY id DESC"
+            ).fetchall()
+            return [self._load_match(conn, row) for row in rows]
+
     def get_latest_match(self) -> Optional[Match]:
         """
         Returns the most recently created match, or None if there are none.

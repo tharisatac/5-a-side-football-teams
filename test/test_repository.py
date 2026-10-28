@@ -158,6 +158,19 @@ def test_get_nonexistent_match(repo):
     assert repo.get_match(999) is None
 
 
+def test_list_matches_newest_first(repo, stored_players):
+    """
+    Tests that list_matches returns every match, newest first.
+    """
+    assert repo.list_matches() == []
+
+    teams = (Team(stored_players[:2]), Team(stored_players[2:]))
+    first = repo.create_match(*teams)
+    second = repo.create_match(*teams)
+
+    assert [m.id for m in repo.list_matches()] == [second, first]
+
+
 def test_get_latest_match(repo, stored_players):
     """
     Tests that get_latest_match returns the newest match, or None.
