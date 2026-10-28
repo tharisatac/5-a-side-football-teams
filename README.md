@@ -49,11 +49,10 @@ larger team gets a 1.2x rating boost.
 ## Code layout
 ```
 src/cli.py                 argparse commands -> services
-src/services.py            use-cases: create_match, record_result, ...
+src/services.py            use-cases: create_match, record_result, CSV, ...
 src/teams.py, player.py    pure domain logic (no storage, no printing)
 src/repository.py          SQLite storage, Match, storage errors
                            (tables in schema.sql)
-src/csv_io.py              CSV import/export
 ```
 
 ## Development

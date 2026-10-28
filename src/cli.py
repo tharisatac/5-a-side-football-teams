@@ -10,7 +10,7 @@ import argparse
 import os
 from typing import List, Optional
 
-from . import csv_io, services
+from . import services
 from .player import ATTRIBUTE_NAMES, DEFAULT_FORM, Attributes, Player
 from .repository import (
     DEFAULT_DB_PATH,
@@ -419,7 +419,7 @@ def export_csv(repo: SqliteRepository, args: argparse.Namespace) -> None:
     :param args:
         The parsed command-line arguments: `filename`.
     """
-    count = csv_io.export_players(repo, args.filename)
+    count = services.export_players(repo, args.filename)
     print(f"✅ Exported {count} players to '{args.filename}'.")
 
 
@@ -433,7 +433,7 @@ def import_csv(repo: SqliteRepository, args: argparse.Namespace) -> None:
     :param args:
         The parsed command-line arguments: `filename`.
     """
-    count, errors = csv_io.import_players(repo, args.filename)
+    count, errors = services.import_players(repo, args.filename)
     for name, exc in errors:
         print(f"⚠️ Could not import player {name}: {exc}")
     print(f"✅ Imported {count} players from '{args.filename}'.")

@@ -8,9 +8,17 @@ the rules live in one place. Each function takes the repository as an
 argument instead of creating one, so tests can pass in a throwaway database.
 """
 
-from typing import List, Sequence
+import csv
+from typing import List, Sequence, Tuple
 
-from .player import ATTRIBUTE_NAMES, MAX_FORM, MIN_FORM, Attributes, Player
+from .player import (
+    ATTRIBUTE_NAMES,
+    DEFAULT_FORM,
+    MAX_FORM,
+    MIN_FORM,
+    Attributes,
+    Player,
+)
 from .repository import (
     TEAM_KEYS,
     Match,
@@ -45,6 +53,7 @@ class InvalidAttrError(Exception):
 
 
 UPDATABLE_FIELDS = ATTRIBUTE_NAMES + ("form",)
+CSV_HEADERS = ("name",) + ATTRIBUTE_NAMES + ("form",)
 
 
 # --------------------------
@@ -215,3 +224,75 @@ def record_result(
     repo.record_result(match_id, winner, updated)
     match.winner = winner
     return match
+
+
+# --------------------------
+# Import / export
+# --------------------------
+
+
+def export_players(repo: SqliteRepository, filename: str) -> int:
+    """
+    Writes all players to a CSV file.
+
+    :param repo:
+        Where the players are read from.
+    :param filename:
+        The CSV file to write. It is overwritten if it exists.
+
+    :raises:
+        OSError: If the file cannot be written.
+
+    :return:
+        The number of players written.
+    """
+    players = repo.list_players()
+    with open(filename, mode="w", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(CSV_HEADERS)
+        for player in players:
+            values = player.attributes.to_values()
+            writer.writerow(
+                [player.name]
+                + [values[name] for name in ATTRIBUTE_NAMES]
+                + [player.form]
+            )
+    return len(players)
+
+
+def import_players(
+    repo: SqliteRepository, filename: str
+) -> Tuple[int, List[Tuple[str, Exception]]]:
+    """
+    Adds every player in a CSV file. A bad row is skipped rather than stopping
+    the import. Extra columns (such as an old `id` column) are ignored.
+
+    :param repo:
+        Where the players are added.
+    :param filename:
+        The CSV file to read.
+
+    :raises:
+        FileNotFoundError: If the file does not exist.
+
+    :return:
+        The number of players imported, and a (name, error) pair for each
+        row that was skipped.
+    """
+    imported = 0
+    errors: List[Tuple[str, Exception]] = []
+    with open(filename, mode="r", newline="") as f:
+        for row in csv.DictReader(f):
+            name = row.get("name") or "<unknown>"
+            try:
+                attributes = Attributes.from_values(
+                    {attr: float(row[attr]) for attr in ATTRIBUTE_NAMES}
+                )
+                form = int(row.get("form") or DEFAULT_FORM)
+                repo.add_player(
+                    Player(name=row["name"], attributes=attributes, form=form)
+                )
+                imported += 1
+            except Exception as exc:
+                errors.append((name, exc))
+    return imported, errors

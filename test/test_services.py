@@ -1,10 +1,14 @@
+import csv
+
 import pytest
 
 from src import services
 from src.repository import (
     MatchAlreadyRecordedError,
     MatchNotFoundError,
+    PlayerAlreadyExistsError,
     PlayerNotFoundError,
+    SqliteRepository,
 )
 from src.teams import DuplicatePlayerError, NotEnoughPlayersError
 
@@ -223,3 +227,70 @@ def test_update_unknown_player(repo):
     """
     with pytest.raises(PlayerNotFoundError):
         services.update_player_field(repo, "Nobody", "shooting", 5)
+
+
+# -------------------------------------------------------------------
+# Import / export
+# -------------------------------------------------------------------
+
+
+def test_export_then_import_round_trip(repo, stored_players, tmp_path):
+    """
+    Tests that exporting and importing into a new database gives back the
+    same players.
+    """
+    path = str(tmp_path / "players.csv")
+
+    assert services.export_players(repo, path) == len(stored_players)
+
+    new_repo = SqliteRepository(str(tmp_path / "other.db"))
+    count, errors = services.import_players(new_repo, path)
+
+    assert errors == []
+    assert count == len(stored_players)
+    assert new_repo.list_players() == stored_players
+
+
+def test_export_headers(repo, stored_players, tmp_path):
+    """
+    Tests the exported CSV columns.
+    """
+    path = tmp_path / "players.csv"
+    services.export_players(repo, str(path))
+
+    with open(path, newline="") as f:
+        rows = list(csv.reader(f))
+
+    assert rows[0] == list(services.CSV_HEADERS)
+    assert len(rows) == 1 + len(stored_players)
+
+
+def test_import_skips_bad_rows(repo, tmp_path):
+    """
+    Tests that a bad row is reported and the rest are still imported. Also
+    checks that an old export with an `id` column still imports.
+    """
+    path = tmp_path / "players.csv"
+    path.write_text(
+        "id,name,shooting,dribbling,passing,tackling,fitness,goalkeeping,"
+        "form\n"
+        "1,Good,7,7,7,7,7,7,5\n"
+        "2,OutOfRange,95,7,7,7,7,7,5\n"
+        "3,NotANumber,x,7,7,7,7,7,5\n"
+        "4,Good,7,7,7,7,7,7,5\n"
+    )
+
+    count, errors = services.import_players(repo, str(path))
+
+    assert count == 1
+    assert [name for name, _ in errors] == ["OutOfRange", "NotANumber", "Good"]
+    assert isinstance(errors[2][1], PlayerAlreadyExistsError)
+    assert [p.name for p in repo.list_players()] == ["Good"]
+
+
+def test_import_missing_file(repo, tmp_path):
+    """
+    Tests that a missing file raises.
+    """
+    with pytest.raises(FileNotFoundError):
+        services.import_players(repo, str(tmp_path / "missing.csv"))
