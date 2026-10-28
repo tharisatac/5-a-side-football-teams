@@ -16,7 +16,7 @@ from fastapi.responses import JSONResponse, RedirectResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 from . import services
-from .player import DEFAULT_FORM, Attributes, Player
+from .player import DEFAULT_FORM, Attributes, InvalidValueError, Player
 from .repository import (
     DEFAULT_DB_PATH,
     Match,
@@ -45,7 +45,7 @@ ERROR_STATUS: Dict[type, int] = {
     DuplicatePlayerError: status.HTTP_422_UNPROCESSABLE_CONTENT,
     NotEnoughPlayersError: status.HTTP_422_UNPROCESSABLE_CONTENT,
     services.InvalidAttrError: status.HTTP_422_UNPROCESSABLE_CONTENT,
-    ValueError: status.HTTP_422_UNPROCESSABLE_CONTENT,
+    InvalidValueError: status.HTTP_422_UNPROCESSABLE_CONTENT,
 }
 
 
@@ -61,8 +61,11 @@ async def _error_response(request: Request, exc: Exception) -> JSONResponse:
     :return:
         `{"detail": "<message>"}` with the status code from ERROR_STATUS.
     """
+    # FastAPI also sends subclasses of a mapped error here, so look up the
+    # closest mapped parent class rather than the exact type.
+    error_type = next(t for t in type(exc).__mro__ if t in ERROR_STATUS)
     return JSONResponse(
-        status_code=ERROR_STATUS[type(exc)], content={"detail": str(exc)}
+        status_code=ERROR_STATUS[error_type], content={"detail": str(exc)}
     )
 
 

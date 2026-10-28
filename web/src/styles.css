@@ -27,6 +27,14 @@
   --pitch-stripe: #2a7d3e;
   --line: rgba(255, 255, 255, 0.75);
 
+  /* Text on coloured backgrounds, and the player tokens on the pitch. These
+     stay the same in both themes because the pitch is always green. */
+  --on-colour: #ffffff;
+  --token-bg: rgba(255, 255, 255, 0.95);
+  --token-text: #13201a;
+  --token-muted: #5e6e64;
+  --overlay: rgba(5, 15, 10, 0.55);
+
   --radius: 14px;
   --shadow: 0 1px 2px rgba(16, 40, 24, 0.06), 0 4px 16px rgba(16, 40, 24, 0.06);
   --display: "Barlow Condensed", "Arial Narrow", sans-serif;
@@ -458,7 +466,7 @@ button:disabled {
   align-items: center;
   gap: 8px;
   margin-bottom: 10px;
-  color: #fff;
+  color: var(--on-colour);
   font-family: var(--display);
   font-size: 1.3rem;
   font-weight: 800;
@@ -491,19 +499,19 @@ button:disabled {
   gap: 8px;
   padding: 6px 12px 6px 6px;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.95);
-  color: #13201a;
+  background: var(--token-bg);
+  color: var(--token-text);
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
 }
 
 .half.team1 .token-badge {
   background: var(--team1);
-  color: #fff;
+  color: var(--on-colour);
 }
 
 .half.team2 .token-badge {
   background: var(--team2);
-  color: #fff;
+  color: var(--on-colour);
 }
 
 .token-name {
@@ -513,7 +521,7 @@ button:disabled {
 .token-rating {
   font-family: var(--display);
   font-weight: 700;
-  color: #5e6e64;
+  color: var(--token-muted);
 }
 
 @media (min-width: 720px) {
@@ -585,7 +593,7 @@ button:disabled {
   padding: 16px;
   border: 0;
   border-radius: 12px;
-  color: #fff;
+  color: var(--on-colour);
   font-family: var(--display);
   font-size: 1.4rem;
   font-weight: 800;
@@ -751,7 +759,7 @@ button:disabled {
   display: grid;
   place-items: center;
   padding: 16px;
-  background: rgba(5, 15, 10, 0.55);
+  background: var(--overlay);
   z-index: 10;
 }
 
@@ -907,7 +915,7 @@ button:disabled {
   padding: 12px 18px;
   border-radius: 12px;
   background: var(--danger);
-  color: #fff;
+  color: var(--on-colour);
   font-weight: 600;
   box-shadow: var(--shadow);
   cursor: pointer;

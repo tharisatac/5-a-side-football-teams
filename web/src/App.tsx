@@ -20,10 +20,16 @@ const TABS: { id: Tab; label: string }[] = [
 ];
 
 /**
- * Runs an API action, then reloads the data. Returns whether it succeeded;
- * on failure the error is shown in a toast.
+ * Runs an API action, then reloads the data. Returns whether the action
+ * succeeded; on failure the error is shown in a toast. A failed reload after
+ * a successful action still counts as success, so the user isn't tempted to
+ * repeat it (e.g. creating a second match).
  */
 export type Run = (action: () => Promise<unknown>) => Promise<boolean>;
+
+function message(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
 
 export default function App() {
   const [tab, setTab] = useState<Tab>(tabFromUrl);
@@ -45,19 +51,25 @@ export default function App() {
     async (action) => {
       try {
         await action();
-        await refresh();
-        return true;
       } catch (e) {
-        setError(e instanceof Error ? e.message : String(e));
+        setError(message(e));
         return false;
       }
+      try {
+        await refresh();
+      } catch (e) {
+        setError(`Saved, but couldn't reload: ${message(e)}`);
+      }
+      return true;
     },
     [refresh],
   );
 
   useEffect(() => {
-    run(async () => undefined).finally(() => setLoaded(true));
-  }, [run]);
+    refresh()
+      .catch((e) => setError(message(e)))
+      .finally(() => setLoaded(true));
+  }, [refresh]);
 
   // Hide the error toast after a few seconds.
   useEffect(() => {

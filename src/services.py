@@ -14,9 +14,11 @@ from typing import List, Mapping, Sequence, Tuple
 from .player import (
     ATTRIBUTE_NAMES,
     DEFAULT_FORM,
+    FORM_CHANGE,
     MAX_FORM,
     MIN_FORM,
     Attributes,
+    InvalidValueError,
     Player,
 )
 from .repository import (
@@ -79,7 +81,7 @@ def update_player(
 
     :raises:
         InvalidAttrError: If a field is not an attribute or "form".
-        ValueError: If a value is out of range.
+        InvalidValueError: If a value is out of range.
         PlayerNotFoundError: If the player does not exist.
 
     :return:
@@ -89,25 +91,22 @@ def update_player(
         if field not in UPDATABLE_FIELDS:
             raise InvalidAttrError(field)
 
-    player = repo.get_player(name)
-    if player is None:
-        raise PlayerNotFoundError(name)
-
     if "form" in changes:
         form = changes["form"]
         if not MIN_FORM <= form <= MAX_FORM:
-            raise ValueError(
+            raise InvalidValueError(
                 f"Invalid form: {form}. Must be between {MIN_FORM} and "
                 f"{MAX_FORM}."
             )
-        player.form = form
+    # Attributes validates the 1-10 range of the attributes being changed.
+    Attributes.from_values({k: v for k, v in changes.items() if k != "form"})
 
-    values = player.attributes.to_values()
-    values.update({k: v for k, v in changes.items() if k != "form"})
-    # Attributes validates the 1-10 range.
-    player.attributes = Attributes.from_values(values)
-
-    repo.update_player(player)
+    # Only the changed columns are written, so this can't undo a form change
+    # made by a match result at the same time.
+    repo.update_player(name, changes)
+    player = repo.get_player(name)
+    if player is None:
+        raise PlayerNotFoundError(name)
     return player
 
 
@@ -200,7 +199,7 @@ def record_result(
         "team1" or "team2".
 
     :raises:
-        ValueError: If `winner` is not "team1" or "team2".
+        InvalidValueError: If `winner` is not "team1" or "team2".
         MatchNotFoundError: If the match does not exist.
         MatchAlreadyRecordedError: If the match already has a different
             result.
@@ -209,7 +208,9 @@ def record_result(
         The match, with its winner set.
     """
     if winner not in TEAM_KEYS:
-        raise ValueError(f"Winner must be 'team1' or 'team2', got '{winner}'.")
+        raise InvalidValueError(
+            f"Winner must be 'team1' or 'team2', got '{winner}'."
+        )
 
     match = repo.get_match(match_id)
     if match is None:
@@ -219,18 +220,7 @@ def record_result(
     if match.winner is not None:
         raise MatchAlreadyRecordedError(match_id, match.winner)
 
-    # Start from each player's current form, not the match snapshot: their
-    # form may have changed since, e.g. if another match was recorded first.
-    updated: List[Player] = []
-    for key in TEAM_KEYS:
-        for snapshot in match.team(key).players:
-            player = repo.get_player(snapshot.name)
-            if player is None:
-                raise PlayerNotFoundError(snapshot.name)
-            player.update_form(won=key == winner)
-            updated.append(player)
-
-    repo.record_result(match_id, winner, updated)
+    repo.record_result(match_id, winner, FORM_CHANGE)
     match.winner = winner
     return match
 

@@ -11,7 +11,13 @@ import os
 from typing import List, Optional
 
 from . import services
-from .player import ATTRIBUTE_NAMES, DEFAULT_FORM, Attributes, Player
+from .player import (
+    ATTRIBUTE_NAMES,
+    DEFAULT_FORM,
+    Attributes,
+    InvalidValueError,
+    Player,
+)
 from .repository import (
     DEFAULT_DB_PATH,
     TEAM_KEYS,
@@ -36,7 +42,7 @@ USER_ERRORS = (
     DuplicatePlayerError,
     NotEnoughPlayersError,
     services.InvalidAttrError,
-    ValueError,
+    InvalidValueError,
     OSError,
 )
 

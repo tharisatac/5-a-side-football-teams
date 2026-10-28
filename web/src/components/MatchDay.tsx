@@ -19,9 +19,11 @@ export default function MatchDay({ players, matches, run }: Props) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
 
-  const latest: Match | undefined = matches[0];
+  // Matches are newest first. Any unplayed match is shown, not just the
+  // newest, so one created earlier (e.g. from the CLI) can still be finished.
+  const open = matches.find((m) => m.winner === null);
+  const lastPlayed = matches.find((m) => m.winner !== null);
   const byName = [...players].sort((a, b) => a.name.localeCompare(b.name));
-  const open = latest?.winner === null ? latest : undefined;
 
   async function act(action: () => Promise<unknown>) {
     setBusy(true);
@@ -75,7 +77,7 @@ export default function MatchDay({ players, matches, run }: Props) {
 
   return (
     <>
-      {latest && <LastResult match={latest} />}
+      {lastPlayed && <LastResult match={lastPlayed} />}
       <section className="panel">
         <div className="panel-head">
           <h2>Who's playing?</h2>

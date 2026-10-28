@@ -5,7 +5,21 @@ fitness, and goalkeeping. The overall rating is calculated based on attributes
 and current form.
 """
 
+import re
 from dataclasses import dataclass
+
+# --------------------------
+# Errors
+# --------------------------
+
+
+class InvalidValueError(ValueError):
+    """
+    Raised when a player's name, score or form, or a match winner, is not
+    allowed. Kept separate from ValueError so that only these become "your
+    input was invalid" errors; any other ValueError is a bug.
+    """
+
 
 __all__ = [
     "Shooting",
@@ -22,6 +36,13 @@ __all__ = [
 DEFAULT_FORM = 5
 MIN_FORM = 0
 MAX_FORM = 10
+# How much form goes up for a win and down for a loss.
+FORM_CHANGE = 1
+
+# Names start with a letter or digit, then letters, digits, spaces and ' . -
+# Leaving out "/" keeps every name usable in a URL such as /players/{name}.
+NAME_PATTERN = re.compile(r"\w[\w '.-]*")
+MAX_NAME_LENGTH = 50
 
 # Define weights for each attribute based on a 5-a-side game focus.
 ATTRIBUTE_WEIGHTS = {
@@ -48,9 +69,11 @@ class PlayerAttribute:
 
     def __post_init__(self):
         if not isinstance(self.score, (int, float)):
-            raise ValueError(f"Invalid score: {self.score}. Must be numeric.")
+            raise InvalidValueError(
+                f"Invalid score: {self.score}. Must be numeric."
+            )
         if not (1 <= self.score <= 10):
-            raise ValueError(
+            raise InvalidValueError(
                 f"Invalid score: {self.score}. Must be between 1 and 10."
             )
 
@@ -116,14 +139,15 @@ class Attributes:
             Attribute name to score (1-10), e.g. {"shooting": 8}.
 
         :raises:
-            ValueError: If a score is not a number or not between 1 and 10.
+            InvalidValueError: If a score is not a number or not between 1
+                and 10.
 
         :return:
             The attributes.
         """
         for key, value in values.items():
             if not isinstance(value, (int, float)):
-                raise ValueError(
+                raise InvalidValueError(
                     f"Invalid value for {key}: {value}. Must be numeric."
                 )
 
@@ -156,6 +180,15 @@ class Player:
     form: int  # Form scale 0-10, where 5 is average
 
     def __post_init__(self):
+        self.name = self.name.strip()
+        if len(self.name) > MAX_NAME_LENGTH or not NAME_PATTERN.fullmatch(
+            self.name
+        ):
+            raise InvalidValueError(
+                f"Invalid name '{self.name}'. Use up to {MAX_NAME_LENGTH} "
+                "letters, digits, spaces and ' . -, starting with a letter or "
+                "digit."
+            )
         # Clamp form between 0 and 10
         self.form = max(MIN_FORM, min(self.form, MAX_FORM))
 
@@ -188,16 +221,3 @@ class Player:
         if not round_num:
             return base_rating * multiplier
         return round(base_rating * multiplier, 2)
-
-    def update_form(self, won: bool) -> None:
-        """
-        Updates the player's form based on the outcome of a match.
-        Increase form if won, decrease if lost.
-
-        :param won:
-            Whether the player's team won.
-        """
-        if won:
-            self.form = min(self.form + 1, MAX_FORM)
-        else:
-            self.form = max(self.form - 1, MIN_FORM)

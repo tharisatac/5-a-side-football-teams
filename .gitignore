@@ -180,3 +180,4 @@ players_export.csv
 # Web UI
 web/node_modules/
 web/dist/
+web/.vite/
