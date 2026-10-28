@@ -18,14 +18,14 @@ from pydantic import BaseModel, ConfigDict, Field
 from . import services
 from .player import DEFAULT_FORM, Attributes, InvalidValueError, Player
 from .repository import (
-    DEFAULT_DB_PATH,
+    DEFAULT_DATABASE_URL,
     Match,
     MatchAlreadyRecordedError,
     MatchNotFoundError,
     PlayerAlreadyExistsError,
     PlayerHasMatchesError,
     PlayerNotFoundError,
-    SqliteRepository,
+    PostgresRepository,
     TeamKey,
 )
 from .teams import DuplicatePlayerError, NotEnoughPlayersError, Team
@@ -80,26 +80,26 @@ for error_type in ERROR_STATUS:
 
 
 @lru_cache
-def _repo_for(path: str) -> SqliteRepository:
+def _repo_for(url: str) -> PostgresRepository:
     """
-    Returns one repository per database path, so the schema check runs once
+    Returns one repository per database URL, so the schema check runs once
     rather than on every request.
 
-    :param path:
-        The database file.
+    :param url:
+        The database URL.
     """
-    return SqliteRepository(path)
+    return PostgresRepository(url)
 
 
-def get_repo() -> SqliteRepository:
+def get_repo() -> PostgresRepository:
     """
     Provides the repository to each route. Tests replace this with a
     temporary database via `app.dependency_overrides`.
     """
-    return _repo_for(os.getenv("FOOTBALL_DB", DEFAULT_DB_PATH))
+    return _repo_for(os.getenv("DATABASE_URL", DEFAULT_DATABASE_URL))
 
 
-Repo = Annotated[SqliteRepository, Depends(get_repo)]
+Repo = Annotated[PostgresRepository, Depends(get_repo)]
 
 
 # --------------------------
@@ -159,7 +159,7 @@ class PlayerOut(BaseModel):
     """
 
     name: str
-    skills: Dict[str, float]
+    skills: Dict[str, int]
     form: int
     rating: float
 

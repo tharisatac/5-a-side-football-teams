@@ -1,3 +1,7 @@
 #!/usr/bin/env bash
-
-python3 main.py "$@"
+# Runs the CLI with the project's virtual environment (which has psycopg),
+# falling back to python3 if there isn't one. Works from any folder.
+DIR="$(cd "$(dirname "$0")" && pwd)"
+PYTHON="$DIR/venv/bin/python"
+[ -x "$PYTHON" ] || PYTHON=python3
+exec "$PYTHON" "$DIR/main.py" "$@"

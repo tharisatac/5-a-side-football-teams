@@ -4,9 +4,10 @@ black==25.9.0
 mypy==1.18.2
 isort==5.10.1
 
-# Web API
+# Web API and database
 fastapi==0.118.0
 uvicorn==0.37.0
+psycopg[binary]==3.2.10
 
 # Testing
 pytest==8.4.2

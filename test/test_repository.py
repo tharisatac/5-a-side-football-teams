@@ -1,19 +1,17 @@
-import os
-import sqlite3
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from test.conftest import make_player
 
 import pytest
+from psycopg import errors
 
 from src.repository import (
-    DEFAULT_DB_PATH,
-    PROJECT_ROOT,
     MatchAlreadyRecordedError,
     MatchNotFoundError,
     PlayerAlreadyExistsError,
     PlayerHasMatchesError,
     PlayerNotFoundError,
-    SqliteRepository,
+    PostgresRepository,
 )
 from src.teams import Team
 
@@ -278,13 +276,10 @@ def test_clear(repo, stored_players):
 
 def test_foreign_keys_are_enforced(repo):
     """
-    Tests that the repository's connections reject rows pointing at
-    players or matches that don't exist.
+    Tests that the database rejects rows pointing at players or matches
+    that don't exist.
     """
-    with repo._connect() as conn:
-        assert conn.execute("PRAGMA foreign_keys").fetchone()[0] == 1
-
-    with pytest.raises(sqlite3.IntegrityError, match="FOREIGN KEY"):
+    with pytest.raises(errors.ForeignKeyViolation):
         with repo._connect() as conn:
             conn.execute(
                 "INSERT INTO match_players (match_id, player_id, "
@@ -301,28 +296,19 @@ def test_check_constraints_reject_bad_scores(repo):
     """
     repo.add_player(make_player("Alice"))
 
-    with pytest.raises(sqlite3.IntegrityError, match="CHECK"):
+    with pytest.raises(errors.CheckViolation):
         with repo._connect() as conn:
             conn.execute("UPDATE players SET shooting = 95")
 
 
-def test_reopening_keeps_data(tmp_path):
+def test_reconnecting_keeps_data(repo, test_database_url):
     """
-    Tests that opening an existing database (which re-runs schema.sql) keeps
-    its data.
+    Tests that a new repository on an existing database (which re-runs
+    schema.sql) keeps its data.
     """
-    path = str(tmp_path / "test.db")
-    SqliteRepository(path).add_player(make_player("Alice"))
+    repo.add_player(make_player("Alice"))
 
-    assert SqliteRepository(path).get_player("Alice") is not None
-
-
-def test_default_path_is_absolute_in_project_folder():
-    """
-    Tests that the default database doesn't depend on the current folder.
-    """
-    assert os.path.isabs(DEFAULT_DB_PATH)
-    assert os.path.dirname(DEFAULT_DB_PATH) == str(PROJECT_ROOT)
+    assert PostgresRepository(test_database_url).get_player("Alice")
 
 
 # -------------------------------------------------------------------
@@ -439,8 +425,10 @@ def test_delete_unplayed_match(repo, match_id):
 
     assert repo.get_match(match_id) is None
     with repo._connect() as conn:
-        count = conn.execute("SELECT COUNT(*) FROM match_players").fetchone()
-    assert count[0] == 0
+        count = conn.execute(
+            "SELECT COUNT(*) AS n FROM match_players"
+        ).fetchone()
+    assert count["n"] == 0
     repo.remove_player("Player 1")
 
 
@@ -483,3 +471,24 @@ def test_cannot_swap_in_recorded_match(repo, match_id):
 
     with pytest.raises(MatchAlreadyRecordedError):
         repo.swap_players(match_id, "Player 1", "Player 3")
+
+
+def test_concurrent_results_lose_no_form_changes(repo, stored_players):
+    """
+    Four matches with the same players, all recorded at the same moment
+    from separate threads. Every result's +1/-1 must survive: winners end
+    on 9 and losers on 1. Reading form in Python and writing it back would
+    lose some of these updates.
+    """
+    teams = (Team(stored_players[:2]), Team(stored_players[2:]))
+    match_ids = [repo.create_match(*teams) for _ in range(4)]
+
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        list(pool.map(lambda m: repo.set_result(m, "team1", 1), match_ids))
+
+    assert _forms(repo) == {
+        "Player 1": 9,
+        "Player 2": 9,
+        "Player 3": 1,
+        "Player 4": 1,
+    }

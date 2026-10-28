@@ -2,15 +2,25 @@
 Shared pytest fixtures. pytest loads this file automatically.
 """
 
-from typing import List
+import os
+from typing import Iterator, List
 
+import psycopg
 import pytest
+from psycopg.conninfo import make_conninfo
 
 from src.player import Attributes, Player
-from src.repository import SqliteRepository
+from src.repository import PostgresRepository
+
+# A separate database on the local Postgres (docker compose up -d), so tests
+# never touch real data. It is recreated at the start of every test run.
+TEST_DATABASE_URL = os.getenv(
+    "TEST_DATABASE_URL",
+    "postgresql://football:football@localhost:5432/football_test",
+)
 
 
-def make_player(name: str, score: float = 7, form: int = 5) -> Player:
+def make_player(name: str, score: int = 7, form: int = 5) -> Player:
     """
     Creates a player with every attribute set to `score`.
     """
@@ -27,13 +37,40 @@ def make_player(name: str, score: float = 7, form: int = 5) -> Player:
     return Player(name=name, attributes=attributes, form=form)
 
 
+@pytest.fixture(scope="session")
+def test_database_url() -> str:
+    """
+    Creates an empty test database once per test run and returns its URL.
+    """
+    test_db = psycopg.conninfo.conninfo_to_dict(TEST_DATABASE_URL)["dbname"]
+    # CREATE DATABASE has to be run from another database, outside a
+    # transaction (autocommit).
+    admin_url = make_conninfo(TEST_DATABASE_URL, dbname="postgres")
+    try:
+        with psycopg.connect(admin_url, autocommit=True) as conn:
+            conn.execute(f'DROP DATABASE IF EXISTS "{test_db}" WITH (FORCE)')
+            conn.execute(f'CREATE DATABASE "{test_db}"')
+    except psycopg.OperationalError as exc:
+        pytest.exit(
+            f"Can't reach Postgres for the tests ({exc}). Start it with "
+            "`docker compose up -d`.",
+            returncode=1,
+        )
+    return TEST_DATABASE_URL
+
+
 @pytest.fixture
-def repo(tmp_path) -> SqliteRepository:
+def repo(test_database_url) -> Iterator[PostgresRepository]:
     """
-    A SqliteRepository backed by a fresh database file in a temporary
-    directory that pytest deletes afterwards.
+    A PostgresRepository on the test database, emptied before each test.
+    RESTART IDENTITY makes IDs start from 1 again.
     """
-    return SqliteRepository(str(tmp_path / "test.db"))
+    repository = PostgresRepository(test_database_url)
+    with psycopg.connect(test_database_url) as conn:
+        conn.execute(
+            "TRUNCATE match_players, matches, players RESTART IDENTITY"
+        )
+    yield repository
 
 
 @pytest.fixture

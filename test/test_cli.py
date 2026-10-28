@@ -25,7 +25,10 @@ def run_cli_command(args, check=True):
         capture_output=True,
         text=True,
         check=check,
-        env={**os.environ, "FOOTBALL_DB": os.environ["TEST_FOOTBALL_DB"]},
+        env={
+            **os.environ,
+            "DATABASE_URL": os.environ["CLI_TEST_DATABASE_URL"],
+        },
     )
 
 
@@ -59,11 +62,11 @@ def add_player_cli(
 # Fixtures
 # -------------------------------------------------------------------
 @pytest.fixture(scope="function")
-def reset_database(tmp_path, monkeypatch):
+def reset_database(repo, test_database_url, monkeypatch):
     """
-    Points each CLI test at a new, empty database in a temporary directory.
+    Points each CLI test at the test database, emptied by the `repo` fixture.
     """
-    monkeypatch.setenv("TEST_FOOTBALL_DB", str(tmp_path / "test.db"))
+    monkeypatch.setenv("CLI_TEST_DATABASE_URL", test_database_url)
 
 
 # -------------------------------------------------------------------

@@ -9,7 +9,6 @@ from src.repository import (
     MatchNotFoundError,
     PlayerAlreadyExistsError,
     PlayerNotFoundError,
-    SqliteRepository,
 )
 from src.teams import DuplicatePlayerError, NotEnoughPlayersError
 
@@ -240,19 +239,19 @@ def test_update_unknown_player(repo):
 
 def test_export_then_import_round_trip(repo, stored_players, tmp_path):
     """
-    Tests that exporting and importing into a new database gives back the
+    Tests that exporting, emptying the database and importing gives back the
     same players.
     """
     path = str(tmp_path / "players.csv")
 
     assert services.export_players(repo, path) == len(stored_players)
 
-    new_repo = SqliteRepository(str(tmp_path / "other.db"))
-    count, errors = services.import_players(new_repo, path)
+    repo.clear()
+    count, errors = services.import_players(repo, path)
 
     assert errors == []
     assert count == len(stored_players)
-    assert new_repo.list_players() == stored_players
+    assert repo.list_players() == stored_players
 
 
 def test_export_headers(repo, stored_players, tmp_path):

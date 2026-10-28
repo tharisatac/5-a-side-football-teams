@@ -1,19 +1,22 @@
 """
-This module stores players and matches in SQLite, and defines the `Match`
+This module stores players and matches in Postgres, and defines the `Match`
 type and the errors storage can raise.
 
-`SqliteRepository` only saves and loads data: no team balancing, no form
+`PostgresRepository` only saves and loads data: no team balancing, no form
 calculations and no printing. Every public method opens its own connection and
 runs as a single transaction, so a method either makes all of its changes or
 none of them.
 """
 
-import sqlite3
 from contextlib import contextmanager
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime
 from pathlib import Path
-from typing import Dict, Iterator, List, Literal, Mapping, Optional
+from typing import Any, Dict, Iterator, List, Literal, Mapping, Optional
+
+import psycopg
+from psycopg import errors
+from psycopg.rows import DictRow, dict_row
 
 from .player import ATTRIBUTE_NAMES, MAX_FORM, MIN_FORM, Attributes, Player
 from .teams import Team
@@ -117,17 +120,20 @@ class MatchAlreadyRecordedError(Exception):
 TeamKey = Literal["team1", "team2"]
 TEAM_KEYS: tuple[TeamKey, ...] = ("team1", "team2")
 
-# Absolute paths in the project folder, so the CLI finds the same database
-# whichever folder it is run from.
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-DEFAULT_DB_PATH = str(PROJECT_ROOT / "football.db")
-SCHEMA_SQL = (PROJECT_ROOT / "schema.sql").read_text()
+# The local Postgres started by `docker compose up -d`. Set the DATABASE_URL
+# environment variable to use another database (e.g. Cloud SQL).
+DEFAULT_DATABASE_URL = "postgresql://football:football@localhost:5432/football"
+SCHEMA_SQL = (
+    Path(__file__).resolve().parent.parent / "schema.sql"
+).read_text()
 
 # Column names are fixed constants, so it is safe to build SQL from them.
-# Values are always passed separately as `?` parameters.
+# Values are always passed separately as `%s` parameters.
 _PLAYER_COLUMNS = ("name",) + ATTRIBUTE_NAMES + ("form",)
 _TEAM_NUMBERS: Dict[TeamKey, int] = {"team1": 1, "team2": 2}
 _WINNERS: Dict[int, TeamKey] = {1: "team1", 2: "team2"}
+
+Connection = psycopg.Connection[DictRow]
 
 
 @dataclass
@@ -159,37 +165,29 @@ class Match:
         return self.team1 if key == "team1" else self.team2
 
 
-class SqliteRepository:
+class PostgresRepository:
     """
-    Stores players and matches in a SQLite database file.
+    Stores players and matches in a Postgres database.
     """
 
-    def __init__(self, path: str = DEFAULT_DB_PATH):
+    def __init__(self, url: str = DEFAULT_DATABASE_URL):
         """
-        Opens (or creates) the database and creates any missing tables.
+        Connects to the database and creates any missing tables.
 
-        :param path:
-            The database file. Defaults to football.db in the project folder.
+        :param url:
+            The database URL, e.g. postgresql://user:password@host:5432/db.
         """
-        self.path = path
+        self.url = url
         self._create_schema()
 
     @contextmanager
-    def _connect(self) -> Iterator[sqlite3.Connection]:
+    def _connect(self) -> Iterator[Connection]:
         """
-        Yields a connection with foreign keys enforced. Commits if the block
+        Yields a connection whose rows are dicts. Commits if the block
         succeeds, rolls back if it raises, and always closes the connection.
         """
-        conn = sqlite3.connect(self.path)
-        try:
-            conn.row_factory = sqlite3.Row
-            # SQLite ignores FOREIGN KEY constraints unless this is set, and
-            # it has to be set again on every new connection.
-            conn.execute("PRAGMA foreign_keys = ON")
-            with conn:
-                yield conn
-        finally:
-            conn.close()
+        with psycopg.connect(self.url, row_factory=dict_row) as conn:
+            yield conn
 
     # --------------------------
     # Players
@@ -206,17 +204,15 @@ class SqliteRepository:
             PlayerAlreadyExistsError: If the name is taken.
         """
         columns = ", ".join(_PLAYER_COLUMNS)
-        placeholders = ", ".join("?" for _ in _PLAYER_COLUMNS)
+        placeholders = ", ".join("%s" for _ in _PLAYER_COLUMNS)
         try:
             with self._connect() as conn:
                 conn.execute(
                     f"INSERT INTO players ({columns}) VALUES ({placeholders})",
                     self._player_values(player),
                 )
-        except sqlite3.IntegrityError as exc:
-            if "UNIQUE constraint failed: players.name" in str(exc):
-                raise PlayerAlreadyExistsError(player.name) from exc
-            raise
+        except errors.UniqueViolation as exc:
+            raise PlayerAlreadyExistsError(player.name) from exc
 
     def get_player(self, name: str) -> Optional[Player]:
         """
@@ -228,7 +224,7 @@ class SqliteRepository:
         with self._connect() as conn:
             row = conn.execute(
                 f"SELECT {', '.join(_PLAYER_COLUMNS)} FROM players "
-                "WHERE name = ?",
+                "WHERE name = %s",
                 (name,),
             ).fetchone()
         return None if row is None else self._row_to_player(row)
@@ -260,21 +256,27 @@ class SqliteRepository:
             PlayerNotFoundError: If the player does not exist.
         """
         # Only known column names are put into the SQL itself; values are
-        # passed separately as `?` parameters.
+        # passed separately as `%s` parameters.
         columns = [col for col in _PLAYER_COLUMNS[1:] if col in changes]
         if len(columns) != len(changes):
             raise ValueError(f"Unknown columns in {sorted(changes)}")
         with self._connect() as conn:
             if not columns:
-                found = conn.execute(
-                    "SELECT 1 FROM players WHERE name = ?", (name,)
-                ).fetchone()
+                found = (
+                    conn.execute(
+                        "SELECT 1 FROM players WHERE name = %s", (name,)
+                    ).fetchone()
+                    is not None
+                )
             else:
-                assignments = ", ".join(f"{col} = ?" for col in columns)
-                found = conn.execute(
-                    f"UPDATE players SET {assignments} WHERE name = ?",
-                    [changes[col] for col in columns] + [name],
-                ).rowcount
+                assignments = ", ".join(f"{col} = %s" for col in columns)
+                found = (
+                    conn.execute(
+                        f"UPDATE players SET {assignments} WHERE name = %s",
+                        [changes[col] for col in columns] + [name],
+                    ).rowcount
+                    > 0
+                )
             if not found:
                 raise PlayerNotFoundError(name)
 
@@ -292,15 +294,13 @@ class SqliteRepository:
         try:
             with self._connect() as conn:
                 cur = conn.execute(
-                    "DELETE FROM players WHERE name = ?", (name,)
+                    "DELETE FROM players WHERE name = %s", (name,)
                 )
                 if cur.rowcount == 0:
                     raise PlayerNotFoundError(name)
-        except sqlite3.IntegrityError as exc:
+        except errors.ForeignKeyViolation as exc:
             # The ON DELETE RESTRICT on match_players.player_id refused it.
-            if "FOREIGN KEY constraint failed" in str(exc):
-                raise PlayerHasMatchesError(name) from exc
-            raise
+            raise PlayerHasMatchesError(name) from exc
 
     def reset_forms(self, form: int) -> None:
         """
@@ -310,7 +310,7 @@ class SqliteRepository:
             The new form (0-10).
         """
         with self._connect() as conn:
-            conn.execute("UPDATE players SET form = ?", (form,))
+            conn.execute("UPDATE players SET form = %s", (form,))
 
     # --------------------------
     # Matches
@@ -333,24 +333,24 @@ class SqliteRepository:
             The new match's ID.
         """
         with self._connect() as conn:
-            cur = conn.execute(
+            row = conn.execute(
                 "INSERT INTO matches (team_1_bonus, team_2_bonus) "
-                "VALUES (?, ?)",
+                "VALUES (%s, %s) RETURNING id",
                 (team1.bonus, team2.bonus),
-            )
-            match_id = cur.lastrowid
-            assert match_id is not None
+            ).fetchone()
+            assert row is not None
+            match_id: int = row["id"]
 
             snapshot = ", ".join(_PLAYER_COLUMNS[1:])
-            placeholders = ", ".join("?" for _ in _PLAYER_COLUMNS[1:])
+            placeholders = ", ".join("%s" for _ in _PLAYER_COLUMNS[1:])
 
             for team_number, team in ((1, team1), (2, team2)):
                 for position, player in enumerate(team.players):
                     cur = conn.execute(
                         "INSERT INTO match_players (match_id, player_id, "
                         f"team_number, position, {snapshot}) "
-                        f"SELECT ?, id, ?, ?, {placeholders} "
-                        "FROM players WHERE name = ?",
+                        f"SELECT %s, id, %s, %s, {placeholders} "
+                        "FROM players WHERE name = %s",
                         (match_id, team_number, position)
                         + self._player_values(player)[1:]
                         + (player.name,),
@@ -368,7 +368,7 @@ class SqliteRepository:
         """
         with self._connect() as conn:
             row = conn.execute(
-                "SELECT * FROM matches WHERE id = ?", (match_id,)
+                "SELECT * FROM matches WHERE id = %s", (match_id,)
             ).fetchone()
             return None if row is None else self._load_match(conn, row)
 
@@ -419,7 +419,7 @@ class SqliteRepository:
             if current is not None:
                 self._undo_form_changes(conn, match_id)
             conn.execute(
-                "UPDATE matches SET winner = ? WHERE id = ?",
+                "UPDATE matches SET winner = %s WHERE id = %s",
                 (None if winner is None else _TEAM_NUMBERS[winner], match_id),
             )
             if winner is not None:
@@ -440,7 +440,7 @@ class SqliteRepository:
         with self._connect() as conn:
             if self._lock_match(conn, match_id) is not None:
                 self._undo_form_changes(conn, match_id)
-            conn.execute("DELETE FROM matches WHERE id = ?", (match_id,))
+            conn.execute("DELETE FROM matches WHERE id = %s", (match_id,))
 
     def swap_players(self, match_id: int, name1: str, name2: str) -> None:
         """
@@ -466,15 +466,15 @@ class SqliteRepository:
             spots = conn.execute(
                 "SELECT p.name, mp.player_id, mp.team_number, mp.position "
                 "FROM match_players mp JOIN players p ON p.id = mp.player_id "
-                "WHERE mp.match_id = ? AND p.name IN (?, ?)",
+                "WHERE mp.match_id = %s AND p.name IN (%s, %s)",
                 (match_id, name1, name2),
             ).fetchall()
             first, second = sorted(spots, key=lambda r: r["name"] != name1)
             # Each player takes the other's team and position.
             for player, spot in ((first, second), (second, first)):
                 conn.execute(
-                    "UPDATE match_players SET team_number = ?, position = ? "
-                    "WHERE match_id = ? AND player_id = ?",
+                    "UPDATE match_players SET team_number = %s, position = %s "
+                    "WHERE match_id = %s AND player_id = %s",
                     (
                         spot["team_number"],
                         spot["position"],
@@ -502,22 +502,24 @@ class SqliteRepository:
         every statement in schema.sql uses IF NOT EXISTS.
         """
         with self._connect() as conn:
-            conn.executescript(SCHEMA_SQL)
+            # Several statements in one call is allowed when there are no
+            # parameters.
+            conn.execute(SCHEMA_SQL)  # type: ignore[arg-type]
 
     # --------------------------
     # Helpers
     # --------------------------
 
     def _lock_match(
-        self, conn: sqlite3.Connection, match_id: int
+        self, conn: Connection, match_id: int
     ) -> Optional[TeamKey]:
         """
-        Starts the transaction with the write lock taken, so the match can't
-        change between this read and the writes that follow, then returns
-        its current winner.
+        Locks the match's row until this transaction ends (FOR UPDATE), so
+        another request changing the same match waits for this one, then
+        returns its current winner.
 
         :param conn:
-            The open connection, not yet in a transaction.
+            The open connection.
         :param match_id:
             The match ID.
 
@@ -527,9 +529,8 @@ class SqliteRepository:
         :return:
             "team1", "team2", or None if the match hasn't been played.
         """
-        conn.execute("BEGIN IMMEDIATE")
         row = conn.execute(
-            "SELECT winner FROM matches WHERE id = ?", (match_id,)
+            "SELECT winner FROM matches WHERE id = %s FOR UPDATE", (match_id,)
         ).fetchone()
         if row is None:
             raise MatchNotFoundError(match_id)
@@ -537,7 +538,7 @@ class SqliteRepository:
 
     def _apply_form_changes(
         self,
-        conn: sqlite3.Connection,
+        conn: Connection,
         match_id: int,
         winner: TeamKey,
         form_change: int,
@@ -562,10 +563,10 @@ class SqliteRepository:
             # The actual change: the new form, kept within the limits,
             # minus the current form.
             conn.execute(
-                "UPDATE match_players SET form_change = ("
-                "SELECT MAX(?, MIN(?, p.form + ?)) - p.form FROM players p "
-                "WHERE p.id = match_players.player_id) "
-                "WHERE match_id = ? AND team_number = ?",
+                "UPDATE match_players mp SET form_change = "
+                "GREATEST(%s, LEAST(%s, p.form + %s)) - p.form "
+                "FROM players p WHERE p.id = mp.player_id "
+                "AND mp.match_id = %s AND mp.team_number = %s",
                 (
                     MIN_FORM,
                     MAX_FORM,
@@ -578,17 +579,13 @@ class SqliteRepository:
         # reading form, changing it in Python and writing it back, so changes
         # made at the same time can't overwrite each other.
         conn.execute(
-            "UPDATE players SET form = form + (SELECT mp.form_change "
-            "FROM match_players mp WHERE mp.match_id = ? "
-            "AND mp.player_id = players.id) "
-            "WHERE id IN (SELECT player_id FROM match_players "
-            "WHERE match_id = ?)",
-            (match_id, match_id),
+            "UPDATE players p SET form = p.form + mp.form_change "
+            "FROM match_players mp "
+            "WHERE mp.match_id = %s AND mp.player_id = p.id",
+            (match_id,),
         )
 
-    def _undo_form_changes(
-        self, conn: sqlite3.Connection, match_id: int
-    ) -> None:
+    def _undo_form_changes(self, conn: Connection, match_id: int) -> None:
         """
         Reverses the form changes a match's result made.
 
@@ -598,15 +595,14 @@ class SqliteRepository:
             The match ID.
         """
         conn.execute(
-            "UPDATE players SET form = MAX(?, MIN(?, form - (SELECT "
-            "mp.form_change FROM match_players mp WHERE mp.match_id = ? "
-            "AND mp.player_id = players.id))) "
-            "WHERE id IN (SELECT player_id FROM match_players "
-            "WHERE match_id = ?)",
-            (MIN_FORM, MAX_FORM, match_id, match_id),
+            "UPDATE players p "
+            "SET form = GREATEST(%s, LEAST(%s, p.form - mp.form_change)) "
+            "FROM match_players mp "
+            "WHERE mp.match_id = %s AND mp.player_id = p.id",
+            (MIN_FORM, MAX_FORM, match_id),
         )
         conn.execute(
-            "UPDATE match_players SET form_change = 0 WHERE match_id = ?",
+            "UPDATE match_players SET form_change = 0 WHERE match_id = %s",
             (match_id,),
         )
 
@@ -626,7 +622,7 @@ class SqliteRepository:
         )
 
     @staticmethod
-    def _row_to_player(row: sqlite3.Row) -> Player:
+    def _row_to_player(row: Mapping[str, Any]) -> Player:
         """
         Builds a Player from a row containing `_PLAYER_COLUMNS`.
 
@@ -640,7 +636,7 @@ class SqliteRepository:
             name=row["name"], attributes=attributes, form=row["form"]
         )
 
-    def _load_match(self, conn: sqlite3.Connection, row: sqlite3.Row) -> Match:
+    def _load_match(self, conn: Connection, row: Mapping[str, Any]) -> Match:
         """
         Builds a Match from a `matches` row by loading its players. Skills and
         form come from the snapshot taken when the match was created.
@@ -656,7 +652,7 @@ class SqliteRepository:
         player_rows = conn.execute(
             f"SELECT mp.team_number, {columns} FROM match_players mp "
             "JOIN players p ON p.id = mp.player_id "
-            "WHERE mp.match_id = ? ORDER BY mp.team_number, mp.position",
+            "WHERE mp.match_id = %s ORDER BY mp.team_number, mp.position",
             (row["id"],),
         ).fetchall()
 
@@ -667,14 +663,10 @@ class SqliteRepository:
             team.players.append(self._row_to_player(player_row))
 
         winner = None if row["winner"] is None else _WINNERS[row["winner"]]
-        # SQLite's CURRENT_TIMESTAMP is UTC text, e.g. "2026-10-28 14:05:00".
-        created_at = datetime.fromisoformat(row["created_at"]).replace(
-            tzinfo=timezone.utc
-        )
         return Match(
             id=row["id"],
             team1=team1,
             team2=team2,
-            created_at=created_at,
+            created_at=row["created_at"],
             winner=winner,
         )

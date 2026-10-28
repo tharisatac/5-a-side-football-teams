@@ -1,0 +1,22 @@
+# Local Postgres for development and tests:  docker compose up -d
+# The app connects with DATABASE_URL (default below); tests use a separate
+# "football_test" database on the same server, created automatically.
+services:
+  db:
+    image: postgres:17.11
+    environment:
+      POSTGRES_USER: football
+      POSTGRES_PASSWORD: football
+      POSTGRES_DB: football
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U football"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+
+volumes:
+  pgdata:
