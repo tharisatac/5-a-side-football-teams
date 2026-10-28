@@ -176,3 +176,7 @@ football.db.bak*
 
 # CSV exports contain real player data
 players_export.csv
+
+# Web UI
+web/node_modules/
+web/dist/
