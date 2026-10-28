@@ -18,6 +18,7 @@ from .repository import (
     MatchAlreadyRecordedError,
     MatchNotFoundError,
     PlayerAlreadyExistsError,
+    PlayerHasMatchesError,
     PlayerNotFoundError,
     Repository,
 )
@@ -29,6 +30,7 @@ from .teams import DuplicatePlayerError, NotEnoughPlayersError, Team
 USER_ERRORS = (
     PlayerNotFoundError,
     PlayerAlreadyExistsError,
+    PlayerHasMatchesError,
     MatchNotFoundError,
     MatchAlreadyRecordedError,
     DuplicatePlayerError,

@@ -17,14 +17,17 @@ from .repository import (
     MatchAlreadyRecordedError,
     MatchNotFoundError,
     PlayerAlreadyExistsError,
+    PlayerHasMatchesError,
     PlayerNotFoundError,
     TeamKey,
 )
 from .teams import Team
 
-DEFAULT_DB_PATH = "football.db"
-
-SCHEMA_SQL = (Path(__file__).parent.parent / "schema.sql").read_text()
+# Absolute paths in the project folder, so the CLI finds the same database
+# whichever folder it is run from.
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+DEFAULT_DB_PATH = str(PROJECT_ROOT / "football.db")
+SCHEMA_SQL = (PROJECT_ROOT / "schema.sql").read_text()
 
 # Column names are fixed constants, so it is safe to build SQL from them.
 # Values are always passed separately as `?` parameters.
@@ -126,15 +129,23 @@ class SqliteRepository:
 
     def remove_player(self, name: str) -> None:
         """
-        Removes the player. Their match appearances are removed too, by the
-        ON DELETE CASCADE on `match_players.player_id`.
+        Removes a player who has never played in a match.
 
         :raises PlayerNotFoundError: If the player does not exist.
+        :raises PlayerHasMatchesError: If the player is in any match.
         """
-        with self._connect() as conn:
-            cur = conn.execute("DELETE FROM players WHERE name = ?", (name,))
-            if cur.rowcount == 0:
-                raise PlayerNotFoundError(name)
+        try:
+            with self._connect() as conn:
+                cur = conn.execute(
+                    "DELETE FROM players WHERE name = ?", (name,)
+                )
+                if cur.rowcount == 0:
+                    raise PlayerNotFoundError(name)
+        except sqlite3.IntegrityError as exc:
+            # The ON DELETE RESTRICT on match_players.player_id refused it.
+            if "FOREIGN KEY constraint failed" in str(exc):
+                raise PlayerHasMatchesError(name) from exc
+            raise
 
     def reset_forms(self, form: int) -> None:
         """
@@ -149,7 +160,8 @@ class SqliteRepository:
 
     def create_match(self, team1: Team, team2: Team) -> int:
         """
-        Stores a new match with no result and returns its ID.
+        Stores a new match with no result and returns its ID. Each player's
+        skills and form are saved with the match as a snapshot.
 
         :raises PlayerNotFoundError: If a team contains an unknown player.
         """
@@ -162,13 +174,19 @@ class SqliteRepository:
             match_id = cur.lastrowid
             assert match_id is not None
 
+            snapshot = ", ".join(_PLAYER_COLUMNS[1:])
+            placeholders = ", ".join("?" for _ in _PLAYER_COLUMNS[1:])
+
             for team_number, team in ((1, team1), (2, team2)):
                 for player in team.players:
                     cur = conn.execute(
                         "INSERT INTO match_players "
-                        "(match_id, player_id, team_number) "
-                        "SELECT ?, id, ? FROM players WHERE name = ?",
-                        (match_id, team_number, player.name),
+                        f"(match_id, player_id, team_number, {snapshot}) "
+                        f"SELECT ?, id, ?, {placeholders} "
+                        "FROM players WHERE name = ?",
+                        (match_id, team_number)
+                        + _player_values(player)[1:]
+                        + (player.name,),
                     )
                     if cur.rowcount == 0:
                         raise PlayerNotFoundError(player.name)
@@ -273,10 +291,12 @@ def _row_to_player(row: sqlite3.Row) -> Player:
 
 def _load_match(conn: sqlite3.Connection, row: sqlite3.Row) -> Match:
     """
-    Builds a Match from a `matches` row by loading its players. Players are
-    loaded with their current form, not their form at the time of the match.
+    Builds a Match from a `matches` row by loading its players. Skills and
+    form come from the snapshot taken when the match was created.
     """
-    columns = ", ".join(f"p.{col}" for col in _PLAYER_COLUMNS)
+    columns = ", ".join(
+        ["p.name"] + [f"mp.{col}" for col in _PLAYER_COLUMNS[1:]]
+    )
     player_rows = conn.execute(
         f"SELECT mp.team_number, {columns} FROM match_players mp "
         "JOIN players p ON p.id = mp.player_id "

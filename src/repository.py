@@ -75,9 +75,10 @@ class Repository(Protocol):
 
     def remove_player(self, name: str) -> None:
         """
-        Removes the player and their match appearances.
+        Removes a player who has never played in a match.
 
         :raises PlayerNotFoundError: If the player does not exist.
+        :raises PlayerHasMatchesError: If the player is in any match.
         """
         ...
 
@@ -89,7 +90,9 @@ class Repository(Protocol):
 
     def create_match(self, team1: Team, team2: Team) -> int:
         """
-        Stores a new match with no result and returns its ID.
+        Stores a new match with no result and returns its ID. The players'
+        skills and form are stored with it, so the match keeps them even if
+        the players change later.
 
         :raises PlayerNotFoundError: If a team contains an unknown player.
         """
@@ -97,7 +100,8 @@ class Repository(Protocol):
 
     def get_match(self, match_id: int) -> Optional[Match]:
         """
-        Returns the match, or None if there is no match with that ID.
+        Returns the match, or None if there is no match with that ID. Its
+        players have the skills and form they had when it was created.
         """
         ...
 
@@ -111,8 +115,8 @@ class Repository(Protocol):
         self, match_id: int, winner: TeamKey, players: Sequence[Player]
     ) -> None:
         """
-        Saves the winner and the players' updated forms as a single change:
-        either both are saved or neither is.
+        Saves the winner and the players' updated (current) forms as a single
+        change: either both are saved or neither is.
 
         :raises MatchNotFoundError: If the match does not exist.
         :raises MatchAlreadyRecordedError: If the match already has a result.
@@ -140,6 +144,24 @@ class PlayerNotFoundError(Exception):
         """
         self.name = name
         super().__init__(f"Unknown player '{name}'.")
+
+
+class PlayerHasMatchesError(Exception):
+    """
+    Raised when removing a player who has played in a match.
+    """
+
+    def __init__(self, name: str) -> None:
+        """
+        Initializes the PlayerHasMatchesError.
+
+        :param name:
+            The name of the player.
+        """
+        self.name = name
+        super().__init__(
+            f"Player '{name}' has played in a match and can't be removed."
+        )
 
 
 class PlayerAlreadyExistsError(Exception):

@@ -1,3 +1,4 @@
+import os
 import sqlite3
 from test.conftest import make_player
 
@@ -7,9 +8,14 @@ from src.repository import (
     MatchAlreadyRecordedError,
     MatchNotFoundError,
     PlayerAlreadyExistsError,
+    PlayerHasMatchesError,
     PlayerNotFoundError,
 )
-from src.sqlite_repository import SqliteRepository
+from src.sqlite_repository import (
+    DEFAULT_DB_PATH,
+    PROJECT_ROOT,
+    SqliteRepository,
+)
 from src.teams import Team
 
 # -------------------------------------------------------------------
@@ -170,7 +176,8 @@ def test_get_latest_match(repo, stored_players):
 
 def test_record_result(repo, stored_players):
     """
-    Tests that the winner and the given forms are saved.
+    Tests that the winner and the given forms are saved, and that the
+    match's snapshot keeps the forms from when it was created.
     """
     match_id = repo.create_match(
         Team(stored_players[:2]), Team(stored_players[2:])
@@ -182,7 +189,8 @@ def test_record_result(repo, stored_players):
     match = repo.get_match(match_id)
     assert match is not None
     assert match.winner == "team1"
-    assert [p.form for p in match.team1.players] == [6, 6]
+    assert [p.form for p in match.team1.players] == [5, 5]
+    assert [repo.get_player(p.name).form for p in winners] == [6, 6]
 
 
 def test_record_result_twice(repo, stored_players):
@@ -212,18 +220,36 @@ def test_record_result_unknown_match(repo):
         repo.record_result(999, "team1", [])
 
 
-def test_remove_player_removes_match_appearances(repo, stored_players):
+def test_match_keeps_snapshot_of_players(repo, stored_players):
     """
-    Tests the ON DELETE CASCADE: a removed player disappears from matches.
+    Tests that changing a player afterwards doesn't change a past match.
     """
     match_id = repo.create_match(
         Team(stored_players[:2]), Team(stored_players[2:])
     )
-    repo.remove_player("Player 1")
+    repo.update_player(make_player("Player 1", score=1, form=0))
 
     match = repo.get_match(match_id)
     assert match is not None
-    assert [p.name for p in match.team1.players] == ["Player 2"]
+    assert match.team1.players[0] == stored_players[0]
+
+
+def test_cannot_remove_player_who_has_played(repo, stored_players):
+    """
+    Tests the ON DELETE RESTRICT: removing a player who is in a match is
+    refused, and both the player and the match are left intact.
+    """
+    match_id = repo.create_match(
+        Team(stored_players[:2]), Team(stored_players[2:])
+    )
+
+    with pytest.raises(PlayerHasMatchesError) as exc:
+        repo.remove_player("Player 1")
+
+    assert exc.value.name == "Player 1"
+    assert repo.get_player("Player 1") is not None
+    match = repo.get_match(match_id)
+    assert match is not None and len(match.team1.players) == 2
 
 
 def test_clear(repo, stored_players):
@@ -253,8 +279,10 @@ def test_foreign_keys_are_enforced(repo):
     with pytest.raises(sqlite3.IntegrityError, match="FOREIGN KEY"):
         with repo._connect() as conn:
             conn.execute(
-                "INSERT INTO match_players (match_id, player_id, team_number) "
-                "VALUES (999, 999, 1)"
+                "INSERT INTO match_players (match_id, player_id, "
+                "team_number, shooting, dribbling, passing, tackling, "
+                "fitness, goalkeeping, form) "
+                "VALUES (999, 999, 1, 5, 5, 5, 5, 5, 5, 5)"
             )
 
 
@@ -279,3 +307,11 @@ def test_reopening_keeps_data(tmp_path):
     SqliteRepository(path).add_player(make_player("Alice"))
 
     assert SqliteRepository(path).get_player("Alice") is not None
+
+
+def test_default_path_is_absolute_in_project_folder():
+    """
+    Tests that the default database doesn't depend on the current folder.
+    """
+    assert os.path.isabs(DEFAULT_DB_PATH)
+    assert os.path.dirname(DEFAULT_DB_PATH) == str(PROJECT_ROOT)

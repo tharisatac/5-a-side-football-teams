@@ -11,8 +11,13 @@ source venv/bin/activate
 ```
 
 ## Usage
-Data is stored in `football.db` (override with the `FOOTBALL_DB` environment
-variable).
+Data is stored in `football.db` in the project folder, whichever folder you
+run the CLI from. Set the `FOOTBALL_DB` environment variable to use a
+different file.
+
+A player who has played in a match can't be removed, so match history stays
+complete. Each match stores its players' skills and form from when the teams
+were made.
 
 ```
 # Players: skills are 1-10

@@ -127,6 +127,19 @@ def test_remove_player(reset_database):
     assert "TestPlayer" not in list_result.stdout
 
 
+def test_remove_player_who_has_played(reset_database):
+    """
+    Tests that a player who is in a match can't be removed.
+    """
+    for player in ["Alice", "Bob"]:
+        add_player_cli(player, 7, 7, 7, 7, 7, 7)
+    run_cli_command(["teams", "create", "Alice", "Bob"])
+
+    result = run_cli_command(["player", "remove", "Alice"], check=False)
+    assert result.returncode == 1
+    assert "has played in a match" in result.stdout
+
+
 def test_update_player(reset_database):
     """
     Tests updating a player's attribute via the CLI.

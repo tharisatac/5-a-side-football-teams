@@ -107,6 +107,24 @@ def test_record_result_for_older_match(repo, stored_players):
     assert stored is not None and stored.winner == "team2"
 
 
+def test_record_result_uses_current_form(repo, stored_players):
+    """
+    Tests that recording an older match starts from each player's current
+    form, not the form saved with the match. Both matches contain the same
+    two players, so recording both wins takes them from 5 to 7.
+    """
+    first = services.create_match(repo, NAMES[:2])
+    second = services.create_match(repo, NAMES[:2])
+    winner = second.team1.players[0].name
+
+    services.record_result(repo, second.id, "team1")
+    first_team = "team1" if first.team1.players[0].name == winner else "team2"
+    services.record_result(repo, first.id, first_team)
+
+    stored = repo.get_player(winner)
+    assert stored is not None and stored.form == 7
+
+
 def test_record_result_unknown_match(repo):
     """
     Tests that an unknown match ID raises.

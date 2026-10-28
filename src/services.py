@@ -45,8 +45,9 @@ def create_match(repo: Repository, player_names: Sequence[str]) -> Match:
 
 def record_result(repo: Repository, match_id: int, winner: TeamKey) -> Match:
     """
-    Records which team won a match and updates every player's form: +1 for
-    the winners and -1 for the losers.
+    Records which team won a match and updates every player's current form:
+    +1 for the winners and -1 for the losers. The match's own snapshot of
+    each player is left as it was.
 
     :raises ValueError: If `winner` is not "team1" or "team2".
     :raises MatchNotFoundError: If the match does not exist.
@@ -61,15 +62,18 @@ def record_result(repo: Repository, match_id: int, winner: TeamKey) -> Match:
     if match.winner is not None:
         raise MatchAlreadyRecordedError(match_id, match.winner)
 
-    team1_won = winner == "team1"
-    for player in match.team1.players:
-        player.update_form(won=team1_won)
-    for player in match.team2.players:
-        player.update_form(won=not team1_won)
+    # Start from each player's current form, not the match snapshot: their
+    # form may have changed since, e.g. if another match was recorded first.
+    updated: List[Player] = []
+    for key in TEAM_KEYS:
+        for snapshot in match.team(key).players:
+            player = repo.get_player(snapshot.name)
+            if player is None:
+                raise PlayerNotFoundError(snapshot.name)
+            player.update_form(won=key == winner)
+            updated.append(player)
 
-    repo.record_result(
-        match_id, winner, match.team1.players + match.team2.players
-    )
+    repo.record_result(match_id, winner, updated)
     match.winner = winner
     return match
 
