@@ -7,12 +7,12 @@ Handles CLI commands and, in the future, other interfaces (APIs, GUI, etc.).
 from src.cli import main as cli_main
 
 
-def main():
+def main() -> int:
     """
-    Routes command-line arguments to the CLI.
+    Routes command-line arguments to the CLI and returns its exit code.
     """
-    cli_main()
+    return cli_main()
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())
