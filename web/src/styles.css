@@ -886,7 +886,7 @@ button.token:hover {
   margin-bottom: 8px;
 }
 
-.history-id {
+.history-date {
   font-family: var(--display);
   font-size: 1.2rem;
   font-weight: 800;
@@ -970,8 +970,8 @@ button.token:hover {
 }
 
 .segmented button.active {
-  background: var(--brand);
-  color: var(--brand-text);
+  background: var(--accent);
+  color: var(--accent-text);
 }
 
 /* ------------------------------------------------------------------

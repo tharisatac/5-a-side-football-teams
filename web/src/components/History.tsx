@@ -2,7 +2,7 @@ import { useState } from "react";
 
 import { api, Match, Team, TeamKey } from "../api";
 import type { Run } from "../App";
-import { matchDate, rating } from "../format";
+import { matchLabel, rating } from "../format";
 
 const RESULTS: { winner: TeamKey | null; label: string }[] = [
   { winner: "team1", label: "Team 1 won" },
@@ -32,7 +32,7 @@ export default function History({ matches, run }: { matches: Match[]; run: Run }
 
   function remove(match: Match) {
     const undo = match.winner ? " Its form changes will be undone." : "";
-    if (window.confirm(`Delete match #${match.id}?${undo}`)) {
+    if (window.confirm(`Delete the match from ${matchLabel(match, matches)}?${undo}`)) {
       act(() => api.deleteMatch(match.id));
     }
   }
@@ -41,7 +41,9 @@ export default function History({ matches, run }: { matches: Match[]; run: Run }
     <section className="panel">
       <div className="panel-head">
         <h2>History</h2>
-        <span className="muted">{matches.length} matches</span>
+        <span className="muted">
+          {matches.length} {matches.length === 1 ? "match" : "matches"}
+        </span>
       </div>
       {matches.length === 0 ? (
         <p className="muted">No matches yet. Pick some teams on Match day.</p>
@@ -50,8 +52,7 @@ export default function History({ matches, run }: { matches: Match[]; run: Run }
           {matches.map((match) => (
             <li key={match.id} className="history-item">
               <div className="history-head">
-                <span className="history-id">#{match.id}</span>
-                <span className="muted">{matchDate(match.created_at)}</span>
+                <span className="history-date">{matchLabel(match, matches)}</span>
               </div>
               <div className="history-teams">
                 <TeamLine team={match.team1} side="team1" won={match.winner === "team1"} />
@@ -59,7 +60,7 @@ export default function History({ matches, run }: { matches: Match[]; run: Run }
                 <TeamLine team={match.team2} side="team2" won={match.winner === "team2"} />
               </div>
               <div className="history-actions">
-                <div className="segmented" role="group" aria-label={`Result of match #${match.id}`}>
+                <div className="segmented" role="group" aria-label={`Result of the match from ${matchLabel(match, matches)}`}>
                   {RESULTS.map(({ winner, label }) => (
                     <button
                       key={label}

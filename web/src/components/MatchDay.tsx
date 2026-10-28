@@ -2,7 +2,7 @@ import { useState } from "react";
 
 import { api, Match, Player, TeamKey } from "../api";
 import type { Run } from "../App";
-import { initials, matchDate, rating } from "../format";
+import { initials, matchLabel, rating } from "../format";
 import Pitch, { BalanceBar } from "./Pitch";
 
 interface Props {
@@ -61,8 +61,7 @@ export default function MatchDay({ players, matches, run }: Props) {
     return (
       <section className="panel">
         <div className="panel-head">
-          <h2>Match #{open.id}</h2>
-          <span className="muted">{matchDate(open.created_at)}</span>
+          <h2>{matchLabel(open, matches)}</h2>
         </div>
         <BalanceBar team1={open.team1} team2={open.team2} />
         <Pitch match={open} picked={picked?.name} onPick={pick} />
@@ -99,7 +98,7 @@ export default function MatchDay({ players, matches, run }: Props) {
 
   return (
     <>
-      {lastPlayed && <LastResult match={lastPlayed} />}
+      {lastPlayed && <LastResult match={lastPlayed} matches={matches} />}
       <section className="panel">
         <div className="panel-head">
           <h2>Who's playing?</h2>
@@ -149,7 +148,7 @@ export default function MatchDay({ players, matches, run }: Props) {
 }
 
 /** A compact summary of the last recorded match and its form changes. */
-function LastResult({ match }: { match: Match }) {
+function LastResult({ match, matches }: { match: Match; matches: Match[] }) {
   if (!match.winner) return null;
   const loser: TeamKey = match.winner === "team1" ? "team2" : "team1";
 
@@ -159,9 +158,7 @@ function LastResult({ match }: { match: Match }) {
         <h3>
           Last match · {match.winner === "team1" ? "Team 1" : "Team 2"} won
         </h3>
-        <span className="muted">
-          #{match.id} · {matchDate(match.created_at)}
-        </span>
+        <span className="muted">{matchLabel(match, matches)}</span>
       </div>
       <div className="form-changes">
         {match[match.winner].players.map((p) => (
