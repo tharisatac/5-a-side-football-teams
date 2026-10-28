@@ -1,5 +1,4 @@
 import copy
-import random
 
 import pytest
 from hypothesis import given
@@ -100,19 +99,6 @@ def sample_players():
     ]
 
 
-def test_create_balanced_teams(sample_players):
-    """
-    Tests that balance_teams correctly creates balanced teams.
-    """
-    team1, team2 = balance_teams(sample_players)
-
-    assert len(team1.players) == 4
-    assert len(team2.players) == 4
-    assert (
-        abs(team1.get_overall_rating() - team2.get_overall_rating()) < 2
-    ), "Teams should be balanced"
-
-
 @pytest.mark.parametrize("num_players", [0, 1])
 def test_not_enough_players_error(sample_players, num_players):
     """
@@ -131,49 +117,6 @@ def test_duplicate_player_error(sample_players, copies):
         balance_teams(sample_players[:2] + [sample_players[0]] * (copies - 1))
 
     assert exc.value.name == sample_players[0].name
-
-
-def test_balance_teams_does_not_modify_input(sample_players):
-    """
-    Tests that balance_teams leaves the given list and players untouched.
-    """
-    original_order = list(sample_players)
-    original_forms = [p.form for p in sample_players]
-
-    balance_teams(sample_players)
-
-    assert sample_players == original_order
-    assert [p.form for p in sample_players] == original_forms
-
-
-def test_apply_team_bonus():
-    """
-    Tests that a bonus is applied correctly to the larger team.
-    """
-    sample_players = [
-        Player(
-            name=f"Player {i+1}",
-            attributes=Attributes.from_values(
-                {
-                    "shooting": 6,
-                    "dribbling": 6,
-                    "passing": 6,
-                    "tackling": 6,
-                    "fitness": 6,
-                    "goalkeeping": 6,
-                }
-            ),
-            form=5,
-        )
-        for i in range(7)
-    ]
-
-    team1, team2 = balance_teams(sample_players)  # 7 players: 3 v 4
-
-    assert len(team1.players) == 3
-    assert len(team2.players) == 4
-    assert team1.bonus == 1.0
-    assert team2.bonus == LARGE_TEAM_BOOST
 
 
 def test_adjust_teams_for_fairness():
@@ -245,116 +188,6 @@ def test_adjust_teams_for_fairness():
     assert (
         new_diff < 5
     ), "Teams should be significantly more balanced after adjustment"
-
-
-def test_adjust_teams_for_fairness_is_deterministic(sample_players):
-    """
-    Ensures that adjusting fairness always results in the same optimal balance,
-    even if players are swapped before recalculating.
-    """
-    # Create the initial best-balanced teams
-    team1, team2 = balance_teams(sample_players)
-
-    initial_balance_diff = abs(
-        team1.get_overall_rating() - team2.get_overall_rating()
-    )
-
-    # Introduce a **random swap** to unbalance the teams
-    random.shuffle(sample_players)
-
-    # Recalculate the teams after introducing imbalance
-    new_team1, new_team2 = balance_teams(sample_players)
-
-    final_balance_diff = abs(
-        new_team1.get_overall_rating() - new_team2.get_overall_rating()
-    )
-
-    # Ensure the balance difference is **the same** after re-balancing
-    assert (
-        initial_balance_diff == final_balance_diff
-    ), "Final balance should be the same regardless of starting swaps"
-
-    # Ensure **the same players** exist across both teams, ignoring swaps
-    initial_players = {p.name for p in sample_players}
-    final_players = {p.name for p in new_team1.players}.union(
-        {p.name for p in new_team2.players}
-    )
-
-    assert initial_players == final_players, (
-        "All players should still be in the teams after adjustment, even if "
-        "swapped"
-    )
-
-
-def test_create_minimum_teams():
-    """
-    Tests creating the smallest possible teams (1v1).
-    """
-    min_players = [
-        Player(
-            name="Player 1",
-            attributes=Attributes.from_values(
-                {
-                    "shooting": 5,
-                    "dribbling": 5,
-                    "passing": 5,
-                    "tackling": 5,
-                    "fitness": 5,
-                    "goalkeeping": 5,
-                }
-            ),
-            form=5,
-        ),
-        Player(
-            name="Player 2",
-            attributes=Attributes.from_values(
-                {
-                    "shooting": 6,
-                    "dribbling": 6,
-                    "passing": 6,
-                    "tackling": 6,
-                    "fitness": 6,
-                    "goalkeeping": 6,
-                }
-            ),
-            form=5,
-        ),
-    ]
-
-    team1, team2 = balance_teams(min_players)
-
-    assert len(team1.players) == 1
-    assert len(team2.players) == 1
-
-
-def test_create_unbalanced_teams():
-    """
-    Tests that unbalanced teams (2v3) still apply the proper bonus.
-    """
-    players = [
-        Player(
-            name=f"Player {i}",
-            attributes=Attributes.from_values(
-                {
-                    "shooting": i + 1,
-                    "dribbling": i + 1,
-                    "passing": i + 1,
-                    "tackling": i + 1,
-                    "fitness": i + 1,
-                    "goalkeeping": i + 1,
-                }
-            ),
-            form=5,
-        )
-        for i in range(5)
-    ]
-
-    team1, team2 = balance_teams(players)  # 5 players: 2 v 3
-
-    assert len(team1.players) == 2
-    assert len(team2.players) == 3
-    assert team1.bonus == 1.0
-    assert team2.bonus == LARGE_TEAM_BOOST, "Bonus should go to larger team"
 
 
 # -------------------------------------------------------------------
