@@ -3,19 +3,42 @@ import { initials, rating } from "../format";
 
 const LABELS: Record<TeamKey, string> = { team1: "Team 1", team2: "Team 2" };
 
+interface PitchProps {
+  match: Match;
+  /** The name of the player tapped first when swapping, if any. */
+  picked?: string | null;
+  /** Called when a player is tapped. Without it the players aren't tappable. */
+  onPick?: (name: string, side: TeamKey) => void;
+}
+
 /** The two teams drawn on a football pitch, one per half. */
-export default function Pitch({ match }: { match: Match }) {
+export default function Pitch({ match, picked, onPick }: PitchProps) {
   return (
     <div className="pitch">
       <div className="pitch-markings" aria-hidden />
       {(["team1", "team2"] as const).map((key) => (
-        <TeamHalf key={key} side={key} team={match[key]} won={match.winner === key} />
+        <TeamHalf
+          key={key}
+          side={key}
+          team={match[key]}
+          won={match.winner === key}
+          picked={picked}
+          onPick={onPick}
+        />
       ))}
     </div>
   );
 }
 
-function TeamHalf({ side, team, won }: { side: TeamKey; team: Team; won: boolean }) {
+interface TeamHalfProps {
+  side: TeamKey;
+  team: Team;
+  won: boolean;
+  picked?: string | null;
+  onPick?: (name: string, side: TeamKey) => void;
+}
+
+function TeamHalf({ side, team, won, picked, onPick }: TeamHalfProps) {
   return (
     <div className={`half ${side}`}>
       <div className="half-label">
@@ -24,13 +47,30 @@ function TeamHalf({ side, team, won }: { side: TeamKey; team: Team; won: boolean
         {won && <span className="pill winner">Won</span>}
       </div>
       <ul className="tokens">
-        {team.players.map((player) => (
-          <li key={player.name} className="token">
-            <span className="token-badge">{initials(player.name)}</span>
-            <span className="token-name">{player.name}</span>
-            <span className="token-rating">{rating(player.rating)}</span>
-          </li>
-        ))}
+        {team.players.map((player) => {
+          const content = (
+            <>
+              <span className="token-badge">{initials(player.name)}</span>
+              <span className="token-name">{player.name}</span>
+              <span className="token-rating">{rating(player.rating)}</span>
+            </>
+          );
+          return (
+            <li key={player.name}>
+              {onPick ? (
+                <button
+                  className={picked === player.name ? "token picked" : "token"}
+                  aria-pressed={picked === player.name}
+                  onClick={() => onPick(player.name, side)}
+                >
+                  {content}
+                </button>
+              ) : (
+                <span className="token">{content}</span>
+              )}
+            </li>
+          );
+        })}
       </ul>
     </div>
   );

@@ -3,6 +3,7 @@ import csv
 import pytest
 
 from src import services
+from src.player import InvalidValueError
 from src.repository import (
     MatchAlreadyRecordedError,
     MatchNotFoundError,
@@ -97,21 +98,6 @@ def test_record_result_is_idempotent(repo, stored_players):
     assert winner is not None and winner.form == 6
 
 
-def test_record_conflicting_result(repo, stored_players):
-    """
-    Tests that a different result for a recorded match is rejected and
-    forms only move once.
-    """
-    match = services.create_match(repo, NAMES)
-    services.record_result(repo, match.id, "team1")
-
-    with pytest.raises(MatchAlreadyRecordedError):
-        services.record_result(repo, match.id, "team2")
-
-    winner = repo.get_player(match.team1.players[0].name)
-    assert winner is not None and winner.form == 6
-
-
 def test_record_result_for_older_match(repo, stored_players):
     """
     Tests that creating a new match doesn't stop an older one being
@@ -142,29 +128,6 @@ def test_record_result_uses_current_form(repo, stored_players):
 
     stored = repo.get_player(winner)
     assert stored is not None and stored.form == 7
-
-
-def test_cancel_match(repo, stored_players):
-    """
-    Tests that an unplayed match can be cancelled and teams picked again.
-    """
-    match = services.create_match(repo, NAMES)
-
-    services.cancel_match(repo, match.id)
-
-    assert repo.get_match(match.id) is None
-    assert services.create_match(repo, NAMES).id != match.id
-
-
-def test_cannot_cancel_recorded_match(repo, stored_players):
-    """
-    Tests that a played match can't be cancelled.
-    """
-    match = services.create_match(repo, NAMES)
-    services.record_result(repo, match.id, "team1")
-
-    with pytest.raises(MatchAlreadyRecordedError):
-        services.cancel_match(repo, match.id)
 
 
 def test_record_result_unknown_match(repo):
@@ -335,3 +298,100 @@ def test_import_missing_file(repo, tmp_path):
     """
     with pytest.raises(FileNotFoundError):
         services.import_players(repo, str(tmp_path / "missing.csv"))
+
+
+# -------------------------------------------------------------------
+# Changing results, deleting and swapping
+# -------------------------------------------------------------------
+
+
+def test_change_result(repo, stored_players):
+    """
+    Recording a different winner replaces the result and its form changes.
+    """
+    match = services.create_match(repo, NAMES)
+    services.record_result(repo, match.id, "team1")
+
+    changed = services.record_result(repo, match.id, "team2")
+
+    assert changed.winner == "team2"
+    first_team1 = repo.get_player(match.team1.players[0].name)
+    assert first_team1 is not None and first_team1.form == 4
+
+
+def test_clear_result(repo, stored_players):
+    """
+    Clearing a result marks the match unplayed and puts form back.
+    """
+    match = services.create_match(repo, NAMES)
+    services.record_result(repo, match.id, "team1")
+
+    cleared = services.clear_result(repo, match.id)
+
+    assert cleared.winner is None
+    assert {p.form for p in repo.list_players()} == {5}
+
+
+def test_delete_match(repo, stored_players):
+    """
+    A match can be deleted and teams picked again, even after a result.
+    """
+    match = services.create_match(repo, NAMES)
+    services.record_result(repo, match.id, "team1")
+
+    services.delete_match(repo, match.id)
+
+    assert repo.get_match(match.id) is None
+    assert {p.form for p in repo.list_players()} == {5}
+    assert services.create_match(repo, NAMES).id != match.id
+
+
+def test_swap_players(repo, stored_players):
+    """
+    Swapping moves one player from each team to the other.
+    """
+    match = services.create_match(repo, NAMES)
+    a = match.team1.players[0].name
+    b = match.team2.players[0].name
+
+    swapped = services.swap_players(repo, match.id, a, b)
+
+    assert b in [p.name for p in swapped.team1.players]
+    assert a in [p.name for p in swapped.team2.players]
+
+
+def test_swap_players_on_the_same_team(repo, stored_players):
+    """
+    Two players from the same team can't be swapped.
+    """
+    match = services.create_match(repo, NAMES)
+    a, b = [p.name for p in match.team1.players]
+
+    with pytest.raises(InvalidValueError):
+        services.swap_players(repo, match.id, a, b)
+
+
+def test_swap_player_not_in_match(repo, stored_players):
+    """
+    A player who isn't in the match can't be swapped.
+    """
+    match = services.create_match(repo, NAMES[:2])
+
+    with pytest.raises(InvalidValueError):
+        services.swap_players(repo, match.id, NAMES[0], NAMES[3])
+
+
+def test_cannot_swap_in_recorded_match(repo, stored_players):
+    """
+    The teams of a played match can't change.
+    """
+    match = services.create_match(repo, NAMES)
+    services.record_result(repo, match.id, "team1")
+
+    with pytest.raises(MatchAlreadyRecordedError):
+        services.swap_players(
+            repo,
+            match.id,
+            match.team1.players[0].name,
+            match.team2.players[0].name,
+        )

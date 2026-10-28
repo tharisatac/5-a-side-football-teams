@@ -149,23 +149,56 @@ def test_cancel_match(reset_database):
     run_cli_command(["teams", "create", "Alice", "Bob"])
 
     result = run_cli_command(["teams", "cancel"])
-    assert "🗑️ Cancelled match #1, " in result.stdout
+    assert "🗑️ Deleted match #1, " in result.stdout
 
     run_cli_command(["player", "remove", "Alice"])
 
 
-def test_cancel_recorded_match(reset_database):
+def test_delete_recorded_match(reset_database):
     """
-    Tests that a played match can't be cancelled.
+    Tests that a played match can be deleted, which puts form back.
     """
     for player in ["Alice", "Bob"]:
         add_player_cli(player, 7, 7, 7, 7, 7, 7)
     run_cli_command(["teams", "create", "Alice", "Bob"])
     run_cli_command(["teams", "result", "team1"])
 
-    result = run_cli_command(["teams", "cancel"], check=False)
-    assert result.returncode == 1
-    assert "already has a result" in result.stdout
+    result = run_cli_command(["teams", "delete"])
+
+    assert "🗑️ Deleted match #1, " in result.stdout
+    listing = run_cli_command(["player", "list"]).stdout
+    assert all(
+        line.split()[1] == "5"
+        for line in listing.splitlines()
+        if line.startswith(("Alice", "Bob"))
+    )
+
+
+def test_undo_result(reset_database):
+    """
+    Tests marking a played match as not played again.
+    """
+    for player in ["Alice", "Bob"]:
+        add_player_cli(player, 7, 7, 7, 7, 7, 7)
+    run_cli_command(["teams", "create", "Alice", "Bob"])
+    run_cli_command(["teams", "result", "team1"])
+
+    result = run_cli_command(["teams", "undo"])
+
+    assert "↩️ Result removed from match #1, " in result.stdout
+
+
+def test_swap_players(reset_database):
+    """
+    Tests swapping two players between the teams.
+    """
+    for player in ["Alice", "Bob"]:
+        add_player_cli(player, 7, 7, 7, 7, 7, 7)
+    run_cli_command(["teams", "create", "Alice", "Bob"])
+
+    result = run_cli_command(["teams", "swap", "Alice", "Bob"])
+
+    assert "🔁 Swapped Alice and Bob" in result.stdout
 
 
 def test_update_player(reset_database):
@@ -275,7 +308,7 @@ def test_record_match_result(reset_database):
 def test_record_match_result_twice(reset_database):
     """
     Tests that recording the same result twice succeeds, and a different
-    result is rejected.
+    result replaces it.
     """
     players = ["Alice", "Bob"]
     for player in players:
@@ -286,9 +319,8 @@ def test_record_match_result_twice(reset_database):
     same = run_cli_command(["teams", "result", "team1"])
     assert "✅ Match recorded: team1 won!" in same.stdout
 
-    different = run_cli_command(["teams", "result", "team2"], check=False)
-    assert different.returncode == 1
-    assert "already has a result" in different.stdout
+    changed = run_cli_command(["teams", "result", "team2"])
+    assert "✅ Match recorded: team2 won!" in changed.stdout
 
 
 def test_record_result_for_match_id(reset_database):

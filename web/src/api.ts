@@ -88,10 +88,14 @@ export const api = {
   updatePlayer: (name: string, changes: PlayerChanges) =>
     request<Player>("PATCH", playerPath(name), changes),
   removePlayer: (name: string) => request<void>("DELETE", playerPath(name)),
+  resetForms: () => request<Player[]>("POST", "/players/reset-forms"),
 
   listMatches: () => request<Match[]>("GET", "/matches"),
   createMatch: (players: string[]) => request<Match>("POST", "/matches", { players }),
-  cancelMatch: (id: number) => request<void>("DELETE", `/matches/${id}`),
+  deleteMatch: (id: number) => request<void>("DELETE", `/matches/${id}`),
+  swapPlayers: (id: number, first: string, second: string) =>
+    request<Match>("POST", `/matches/${id}/swap`, { players: [first, second] }),
   recordResult: (id: number, winner: TeamKey) =>
     request<Match>("PUT", `/matches/${id}/result`, { winner }),
+  clearResult: (id: number) => request<Match>("DELETE", `/matches/${id}/result`),
 };

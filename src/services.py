@@ -148,10 +148,10 @@ def create_match(repo: SqliteRepository, player_names: Sequence[str]) -> Match:
     return match
 
 
-def cancel_match(repo: SqliteRepository, match_id: int) -> Match:
+def delete_match(repo: SqliteRepository, match_id: int) -> Match:
     """
-    Deletes a match that hasn't been played, e.g. to pick teams again. A
-    match with a result can't be cancelled, so history stays complete.
+    Deletes a match, e.g. to pick teams again or remove a mistake. If it has
+    a result, the form changes from that result are undone first.
 
     :param repo:
         Where players and matches are stored.
@@ -160,19 +160,56 @@ def cancel_match(repo: SqliteRepository, match_id: int) -> Match:
 
     :raises:
         MatchNotFoundError: If the match does not exist.
-        MatchAlreadyRecordedError: If the match already has a result.
 
     :return:
-        The cancelled match.
+        The deleted match.
     """
-    match = repo.get_match(match_id)
-    if match is None:
-        raise MatchNotFoundError(match_id)
+    match = _get_match(repo, match_id)
+    repo.delete_match(match_id)
+    return match
+
+
+def swap_players(
+    repo: SqliteRepository, match_id: int, name1: str, name2: str
+) -> Match:
+    """
+    Swaps two players between the teams of a match that hasn't been played,
+    e.g. to adjust the balanced teams by hand. Team sizes stay the same.
+
+    :param repo:
+        Where players and matches are stored.
+    :param match_id:
+        The match ID.
+    :param name1:
+        A player in one team.
+    :param name2:
+        A player in the other team.
+
+    :raises:
+        MatchNotFoundError: If the match does not exist.
+        MatchAlreadyRecordedError: If the match has a result.
+        InvalidValueError: If a player isn't in the match, or both are in
+            the same team.
+
+    :return:
+        The match with the players swapped.
+    """
+    match = _get_match(repo, match_id)
     if match.winner is not None:
         raise MatchAlreadyRecordedError(match_id, match.winner)
+    team_of = {
+        p.name: key for key in TEAM_KEYS for p in match.team(key).players
+    }
+    for name in (name1, name2):
+        if name not in team_of:
+            raise InvalidValueError(f"'{name}' isn't in match #{match_id}.")
+    if team_of[name1] == team_of[name2]:
+        raise InvalidValueError(
+            f"'{name1}' and '{name2}' are in the same team."
+        )
 
-    repo.cancel_match(match_id)
-    return match
+    repo.swap_players(match_id, name1, name2)
+    return _get_match(repo, match_id)
 
 
 # --------------------------
@@ -184,9 +221,10 @@ def record_result(
     repo: SqliteRepository, match_id: int, winner: TeamKey
 ) -> Match:
     """
-    Records which team won a match and updates every player's current form:
-    +1 for the winners and -1 for the losers. The match's own snapshot of
-    each player is left as it was.
+    Records which team won a match, or changes it if a different winner was
+    recorded before. Players' current form moves by FORM_CHANGE: up for the
+    winners, down for the losers; the previous result's changes are undone
+    first. The match's own snapshot of each player is left as it was.
 
     Idempotent: recording the same winner again does nothing and succeeds,
     so a retried request can't change anyone's form twice.
@@ -201,8 +239,6 @@ def record_result(
     :raises:
         InvalidValueError: If `winner` is not "team1" or "team2".
         MatchNotFoundError: If the match does not exist.
-        MatchAlreadyRecordedError: If the match already has a different
-            result.
 
     :return:
         The match, with its winner set.
@@ -211,17 +247,45 @@ def record_result(
         raise InvalidValueError(
             f"Winner must be 'team1' or 'team2', got '{winner}'."
         )
+    repo.set_result(match_id, winner, FORM_CHANGE)
+    return _get_match(repo, match_id)
 
+
+def clear_result(repo: SqliteRepository, match_id: int) -> Match:
+    """
+    Marks a match as not played, undoing the form changes from its result.
+    Does nothing if it has no result.
+
+    :param repo:
+        Where players and matches are stored.
+    :param match_id:
+        The match ID.
+
+    :raises:
+        MatchNotFoundError: If the match does not exist.
+
+    :return:
+        The match, with no winner.
+    """
+    repo.set_result(match_id, None, FORM_CHANGE)
+    return _get_match(repo, match_id)
+
+
+def _get_match(repo: SqliteRepository, match_id: int) -> Match:
+    """
+    Returns the match.
+
+    :param repo:
+        Where matches are stored.
+    :param match_id:
+        The match ID.
+
+    :raises:
+        MatchNotFoundError: If the match does not exist.
+    """
     match = repo.get_match(match_id)
     if match is None:
         raise MatchNotFoundError(match_id)
-    if match.winner == winner:
-        return match  # Already recorded: nothing to do.
-    if match.winner is not None:
-        raise MatchAlreadyRecordedError(match_id, match.winner)
-
-    repo.record_result(match_id, winner, FORM_CHANGE)
-    match.winner = winner
     return match
 
 

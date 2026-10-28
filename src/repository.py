@@ -345,13 +345,13 @@ class SqliteRepository:
             placeholders = ", ".join("?" for _ in _PLAYER_COLUMNS[1:])
 
             for team_number, team in ((1, team1), (2, team2)):
-                for player in team.players:
+                for position, player in enumerate(team.players):
                     cur = conn.execute(
-                        "INSERT INTO match_players "
-                        f"(match_id, player_id, team_number, {snapshot}) "
-                        f"SELECT ?, id, ?, {placeholders} "
+                        "INSERT INTO match_players (match_id, player_id, "
+                        f"team_number, position, {snapshot}) "
+                        f"SELECT ?, id, ?, ?, {placeholders} "
                         "FROM players WHERE name = ?",
-                        (match_id, team_number)
+                        (match_id, team_number, position)
                         + self._player_values(player)[1:]
                         + (player.name,),
                     )
@@ -392,79 +392,94 @@ class SqliteRepository:
             ).fetchone()
             return None if row is None else self._load_match(conn, row)
 
-    def cancel_match(self, match_id: int) -> None:
-        """
-        Deletes a match that has no result yet. Its `match_players` rows are
-        deleted too, by the ON DELETE CASCADE on `match_players.match_id`.
-
-        :param match_id:
-            The match ID.
-
-        :raises:
-            MatchNotFoundError: If the match does not exist.
-            MatchAlreadyRecordedError: If the match already has a result.
-        """
-        with self._connect() as conn:
-            # `winner IS NULL` means a recorded match is never deleted.
-            cur = conn.execute(
-                "DELETE FROM matches WHERE id = ? AND winner IS NULL",
-                (match_id,),
-            )
-            if cur.rowcount == 0:
-                self._raise_for_unchangeable_match(conn, match_id)
-
-    def record_result(
-        self, match_id: int, winner: TeamKey, form_change: int
+    def set_result(
+        self, match_id: int, winner: Optional[TeamKey], form_change: int
     ) -> None:
         """
-        Saves the winner, then raises the winners' form and lowers the losers'
-        by `form_change`, kept within MIN_FORM-MAX_FORM, all in one
-        transaction. If the match already has this winner, nothing changes.
+        Records, changes or (with None) clears a match's winner, in one
+        transaction. Any form changes from the previous result are undone
+        first; then the new winners' form goes up and the losers' down by
+        `form_change`, kept within MIN_FORM-MAX_FORM. Setting the winner the
+        match already has changes nothing.
 
         :param match_id:
             The match ID.
         :param winner:
-            "team1" or "team2".
+            "team1", "team2", or None for "not played".
         :param form_change:
             How much each player's form moves.
 
         :raises:
             MatchNotFoundError: If the match does not exist.
-            MatchAlreadyRecordedError: If the match already has a different
-                result.
         """
         with self._connect() as conn:
-            # `winner IS NULL` makes this a no-op for an already-recorded
-            # match, so a result can never be applied twice even if two
-            # requests race each other.
-            cur = conn.execute(
-                "UPDATE matches SET winner = ? "
-                "WHERE id = ? AND winner IS NULL",
-                (_TEAM_NUMBERS[winner], match_id),
+            current = self._lock_match(conn, match_id)
+            if current == winner:
+                return  # Already this result: leave forms alone.
+            if current is not None:
+                self._undo_form_changes(conn, match_id)
+            conn.execute(
+                "UPDATE matches SET winner = ? WHERE id = ?",
+                (None if winner is None else _TEAM_NUMBERS[winner], match_id),
             )
-            if cur.rowcount == 0:
-                row = conn.execute(
-                    "SELECT winner FROM matches WHERE id = ?", (match_id,)
-                ).fetchone()
-                if row is not None and _WINNERS[row["winner"]] == winner:
-                    return  # Same result already saved: leave forms alone.
-                self._raise_for_unchangeable_match(conn, match_id)
+            if winner is not None:
+                self._apply_form_changes(conn, match_id, winner, form_change)
 
-            # The database does the arithmetic (`form + ?`) instead of us
-            # reading form, changing it in Python and writing it back. Two
-            # results recorded at once then can't overwrite each other.
-            for team_number in (1, 2):
-                won = team_number == _TEAM_NUMBERS[winner]
+    def delete_match(self, match_id: int) -> None:
+        """
+        Deletes a match, first undoing any form changes from its result. Its
+        `match_players` rows are deleted too, by the ON DELETE CASCADE on
+        `match_players.match_id`.
+
+        :param match_id:
+            The match ID.
+
+        :raises:
+            MatchNotFoundError: If the match does not exist.
+        """
+        with self._connect() as conn:
+            if self._lock_match(conn, match_id) is not None:
+                self._undo_form_changes(conn, match_id)
+            conn.execute("DELETE FROM matches WHERE id = ?", (match_id,))
+
+    def swap_players(self, match_id: int, name1: str, name2: str) -> None:
+        """
+        Puts two players in each other's place in a match that hasn't been
+        played: each takes the other's team and position in the list. The
+        caller checks they are in the match on different teams.
+
+        :param match_id:
+            The match ID.
+        :param name1:
+            A player in one team.
+        :param name2:
+            A player in the other team.
+
+        :raises:
+            MatchNotFoundError: If the match does not exist.
+            MatchAlreadyRecordedError: If the match has a result.
+        """
+        with self._connect() as conn:
+            winner = self._lock_match(conn, match_id)
+            if winner is not None:
+                raise MatchAlreadyRecordedError(match_id, winner)
+            spots = conn.execute(
+                "SELECT p.name, mp.player_id, mp.team_number, mp.position "
+                "FROM match_players mp JOIN players p ON p.id = mp.player_id "
+                "WHERE mp.match_id = ? AND p.name IN (?, ?)",
+                (match_id, name1, name2),
+            ).fetchall()
+            first, second = sorted(spots, key=lambda r: r["name"] != name1)
+            # Each player takes the other's team and position.
+            for player, spot in ((first, second), (second, first)):
                 conn.execute(
-                    "UPDATE players SET form = MAX(?, MIN(?, form + ?)) "
-                    "WHERE id IN (SELECT player_id FROM match_players "
-                    "WHERE match_id = ? AND team_number = ?)",
+                    "UPDATE match_players SET team_number = ?, position = ? "
+                    "WHERE match_id = ? AND player_id = ?",
                     (
-                        MIN_FORM,
-                        MAX_FORM,
-                        form_change if won else -form_change,
+                        spot["team_number"],
+                        spot["position"],
                         match_id,
-                        team_number,
+                        player["player_id"],
                     ),
                 )
 
@@ -493,28 +508,107 @@ class SqliteRepository:
     # Helpers
     # --------------------------
 
-    def _raise_for_unchangeable_match(
+    def _lock_match(
         self, conn: sqlite3.Connection, match_id: int
-    ) -> None:
+    ) -> Optional[TeamKey]:
         """
-        Called when an update or delete limited to `winner IS NULL` matched no
-        rows: raises the error explaining why.
+        Starts the transaction with the write lock taken, so the match can't
+        change between this read and the writes that follow, then returns
+        its current winner.
 
         :param conn:
-            The open connection.
+            The open connection, not yet in a transaction.
         :param match_id:
             The match ID.
 
         :raises:
             MatchNotFoundError: If the match does not exist.
-            MatchAlreadyRecordedError: If the match already has a result.
+
+        :return:
+            "team1", "team2", or None if the match hasn't been played.
         """
+        conn.execute("BEGIN IMMEDIATE")
         row = conn.execute(
             "SELECT winner FROM matches WHERE id = ?", (match_id,)
         ).fetchone()
         if row is None:
             raise MatchNotFoundError(match_id)
-        raise MatchAlreadyRecordedError(match_id, _WINNERS[row["winner"]])
+        return None if row["winner"] is None else _WINNERS[row["winner"]]
+
+    def _apply_form_changes(
+        self,
+        conn: sqlite3.Connection,
+        match_id: int,
+        winner: TeamKey,
+        form_change: int,
+    ) -> None:
+        """
+        Moves the winners' form up and the losers' down, and remembers in
+        `match_players.form_change` exactly how much each player moved, so
+        the result can be undone precisely later. A player already at the
+        limit moves by 0.
+
+        :param conn:
+            The open connection, in a transaction.
+        :param match_id:
+            The match ID.
+        :param winner:
+            "team1" or "team2".
+        :param form_change:
+            How much each player's form moves.
+        """
+        for team_number in (1, 2):
+            won = team_number == _TEAM_NUMBERS[winner]
+            # The actual change: the new form, kept within the limits,
+            # minus the current form.
+            conn.execute(
+                "UPDATE match_players SET form_change = ("
+                "SELECT MAX(?, MIN(?, p.form + ?)) - p.form FROM players p "
+                "WHERE p.id = match_players.player_id) "
+                "WHERE match_id = ? AND team_number = ?",
+                (
+                    MIN_FORM,
+                    MAX_FORM,
+                    form_change if won else -form_change,
+                    match_id,
+                    team_number,
+                ),
+            )
+        # The database does the arithmetic (`form + change`) instead of us
+        # reading form, changing it in Python and writing it back, so changes
+        # made at the same time can't overwrite each other.
+        conn.execute(
+            "UPDATE players SET form = form + (SELECT mp.form_change "
+            "FROM match_players mp WHERE mp.match_id = ? "
+            "AND mp.player_id = players.id) "
+            "WHERE id IN (SELECT player_id FROM match_players "
+            "WHERE match_id = ?)",
+            (match_id, match_id),
+        )
+
+    def _undo_form_changes(
+        self, conn: sqlite3.Connection, match_id: int
+    ) -> None:
+        """
+        Reverses the form changes a match's result made.
+
+        :param conn:
+            The open connection, in a transaction.
+        :param match_id:
+            The match ID.
+        """
+        conn.execute(
+            "UPDATE players SET form = MAX(?, MIN(?, form - (SELECT "
+            "mp.form_change FROM match_players mp WHERE mp.match_id = ? "
+            "AND mp.player_id = players.id))) "
+            "WHERE id IN (SELECT player_id FROM match_players "
+            "WHERE match_id = ?)",
+            (MIN_FORM, MAX_FORM, match_id, match_id),
+        )
+        conn.execute(
+            "UPDATE match_players SET form_change = 0 WHERE match_id = ?",
+            (match_id,),
+        )
 
     @staticmethod
     def _player_values(player: Player) -> tuple:
@@ -562,7 +656,7 @@ class SqliteRepository:
         player_rows = conn.execute(
             f"SELECT mp.team_number, {columns} FROM match_players mp "
             "JOIN players p ON p.id = mp.player_id "
-            "WHERE mp.match_id = ? ORDER BY mp.rowid",
+            "WHERE mp.match_id = ? ORDER BY mp.team_number, mp.position",
             (row["id"],),
         ).fetchall()
 

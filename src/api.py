@@ -197,6 +197,16 @@ class MatchOut(BaseModel):
     winner: Optional[TeamKey]
 
 
+class SwapIn(BaseModel):
+    """
+    Body of `POST /matches/{match_id}/swap`: one player from each team.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    players: List[str] = Field(min_length=2, max_length=2)
+
+
 class ResultIn(BaseModel):
     """
     Body of `PUT /matches/{match_id}/result`.
@@ -350,6 +360,20 @@ def update_player(name: str, body: PlayerUpdate, repo: Repo) -> PlayerOut:
     return _player_out(services.update_player(repo, name, changes))
 
 
+@app.post("/players/reset-forms")
+def reset_forms(repo: Repo) -> List[PlayerOut]:
+    """
+    Sets every player's form back to the default (5). Past matches keep
+    their snapshots; undoing an older result afterwards moves form relative
+    to the new value.
+
+    :param repo:
+        Where players are stored.
+    """
+    repo.reset_forms(DEFAULT_FORM)
+    return [_player_out(p) for p in repo.list_players()]
+
+
 @app.delete("/players/{name}", status_code=status.HTTP_204_NO_CONTENT)
 def remove_player(name: str, repo: Repo) -> None:
     """
@@ -421,9 +445,10 @@ def get_match(match_id: int, repo: Repo) -> MatchOut:
 
 
 @app.delete("/matches/{match_id}", status_code=status.HTTP_204_NO_CONTENT)
-def cancel_match(match_id: int, repo: Repo) -> None:
+def delete_match(match_id: int, repo: Repo) -> None:
     """
-    Cancels a match that hasn't been played.
+    Deletes a match. If it has a result, that result's form changes are
+    undone first.
 
     :param match_id:
         The match ID.
@@ -432,17 +457,44 @@ def cancel_match(match_id: int, repo: Repo) -> None:
 
     :raises:
         MatchNotFoundError: If the match does not exist (404).
-        MatchAlreadyRecordedError: If the match has a result (409).
     """
-    services.cancel_match(repo, match_id)
+    services.delete_match(repo, match_id)
+
+
+@app.post("/matches/{match_id}/swap")
+def swap_players(match_id: int, body: SwapIn, repo: Repo) -> MatchOut:
+    """
+    Swaps two players between the teams of a match that hasn't been played.
+
+    :param match_id:
+        The match ID.
+    :param body:
+        The two players, one from each team.
+    :param repo:
+        Where matches are stored.
+
+    :raises:
+        MatchNotFoundError: If the match does not exist (404).
+        MatchAlreadyRecordedError: If the match has a result (409).
+        InvalidValueError: If a player isn't in the match, or both are in
+            the same team (422).
+    """
+    first, second = body.players
+    return _match_out(services.swap_players(repo, match_id, first, second))
+
+
+# --------------------------
+# Results
+# --------------------------
 
 
 @app.put("/matches/{match_id}/result")
 def record_result(match_id: int, body: ResultIn, repo: Repo) -> MatchOut:
     """
-    Records the winner and updates players' form. Idempotent: sending the
-    same winner again changes nothing and returns the same match, so
-    retries are safe. PUT is the HTTP method for exactly this behaviour.
+    Sets the winner and updates players' form, replacing any earlier result
+    (its form changes are undone first). Idempotent: sending the same
+    winner again changes nothing and returns the same match, so retries are
+    safe. PUT is the HTTP method for exactly this behaviour.
 
     :param match_id:
         The match ID.
@@ -453,6 +505,22 @@ def record_result(match_id: int, body: ResultIn, repo: Repo) -> MatchOut:
 
     :raises:
         MatchNotFoundError: If the match does not exist (404).
-        MatchAlreadyRecordedError: If a different winner was recorded (409).
     """
     return _match_out(services.record_result(repo, match_id, body.winner))
+
+
+@app.delete("/matches/{match_id}/result")
+def clear_result(match_id: int, repo: Repo) -> MatchOut:
+    """
+    Marks a match as not played, undoing its result's form changes.
+    Idempotent like PUT: clearing a match with no result changes nothing.
+
+    :param match_id:
+        The match ID.
+    :param repo:
+        Where players and matches are stored.
+
+    :raises:
+        MatchNotFoundError: If the match does not exist (404).
+    """
+    return _match_out(services.clear_result(repo, match_id))

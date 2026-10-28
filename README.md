@@ -16,8 +16,9 @@ run the CLI from. Set the `FOOTBALL_DB` environment variable to use a
 different file.
 
 A player who is in a match can't be removed, so match history stays
-complete; cancel an unplayed match first if needed. Matches with a result
-can't be cancelled. Each match stores its players' skills and form from when the teams
+complete; delete the match first if needed. Each match remembers exactly how
+its result changed everyone's form, so changing, clearing or deleting a
+result puts form back precisely. Each match stores its players' skills and form from when the teams
 were made.
 
 ```
@@ -31,7 +32,10 @@ were made.
 ./run teams create Alice Bob Cara Dan    # prints e.g. "match #3, 28 Oct 2026"
 ./run teams rating team1                 # latest match, or --match N
 ./run teams result team1                 # winners' form +1, losers' -1
-./run teams cancel                       # delete an unplayed match
+./run teams result team2                 # change the result (form follows)
+./run teams undo                         # back to not played
+./run teams swap Alice Bob               # swap two players (unplayed match)
+./run teams delete                       # delete a match, undoing its form
 
 # CSV
 ./run database export players.csv
@@ -51,8 +55,10 @@ API uses the same database and rules as the CLI.
 |---|---|
 | `GET /healthz` | Health check |
 | `GET/POST /players`, `GET/PATCH/DELETE /players/{name}` | Manage players |
-| `GET/POST /matches`, `GET/DELETE /matches/{id}` | Pick teams, history, cancel |
-| `PUT /matches/{id}/result` | Record the winner (safe to retry) |
+| `POST /players/reset-forms` | Reset everyone's form to 5 |
+| `GET/POST /matches`, `GET/DELETE /matches/{id}` | Pick teams, history, delete |
+| `POST /matches/{id}/swap` | Swap two players between the teams |
+| `PUT/DELETE /matches/{id}/result` | Set or change the winner (safe to retry), or clear it |
 
 ## Web UI
 A React app in `web/` for match day, the squad and match history. It talks
