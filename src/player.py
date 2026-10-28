@@ -65,19 +65,20 @@ class PlayerAttribute:
     to it.
     """
 
-    score: float
+    score: int
 
     def __post_init__(self):
-        if not isinstance(self.score, (int, float)):
+        # bool is a kind of int in Python, so rule it out explicitly.
+        if not isinstance(self.score, int) or isinstance(self.score, bool):
             raise InvalidValueError(
-                f"Invalid score: {self.score}. Must be numeric."
+                f"Invalid score: {self.score}. Must be a whole number."
             )
         if not (1 <= self.score <= 10):
             raise InvalidValueError(
                 f"Invalid score: {self.score}. Must be between 1 and 10."
             )
 
-    def get_score(self) -> float:
+    def get_score(self) -> int:
         return self.score
 
 
@@ -131,7 +132,7 @@ class Attributes:
     goalkeeping: Goalkeeping
 
     @classmethod
-    def from_values(cls, values: dict[str, float]) -> "Attributes":
+    def from_values(cls, values: dict[str, int]) -> "Attributes":
         """
         Builds Attributes from a dict of scores. Missing ones default to 5.
 
@@ -146,9 +147,9 @@ class Attributes:
             The attributes.
         """
         for key, value in values.items():
-            if not isinstance(value, (int, float)):
+            if not isinstance(value, int) or isinstance(value, bool):
                 raise InvalidValueError(
-                    f"Invalid value for {key}: {value}. Must be numeric."
+                    f"Invalid value for {key}: {value}. Must be a whole number."
                 )
 
         return cls(
@@ -160,7 +161,7 @@ class Attributes:
             goalkeeping=Goalkeeping(values.get("goalkeeping", 5)),
         )
 
-    def to_values(self) -> dict[str, float]:
+    def to_values(self) -> dict[str, int]:
         """
         Returns the attribute scores as a plain dict, the inverse of
         `from_values`.

@@ -1,10 +1,9 @@
--- SQLite schema for the football team decider.
--- Every statement is safe to re-run ("IF NOT EXISTS").
--- Foreign keys are only enforced when a connection runs
--- `PRAGMA foreign_keys = ON`, which SqliteRepository does on every connection.
+-- Postgres schema for the football team decider.
+-- Every statement is safe to re-run ("IF NOT EXISTS"), so the app runs this
+-- on every start. Postgres always enforces foreign keys and CHECKs.
 
 CREATE TABLE IF NOT EXISTS players (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     name TEXT UNIQUE NOT NULL,
     shooting INTEGER NOT NULL CHECK (shooting BETWEEN 1 AND 10),
     dribbling INTEGER NOT NULL CHECK (dribbling BETWEEN 1 AND 10),
@@ -16,10 +15,10 @@ CREATE TABLE IF NOT EXISTS players (
 );
 
 CREATE TABLE IF NOT EXISTS matches (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    team_1_bonus REAL NOT NULL DEFAULT 1.0,
-    team_2_bonus REAL NOT NULL DEFAULT 1.0,
+    id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    team_1_bonus DOUBLE PRECISION NOT NULL DEFAULT 1.0,
+    team_2_bonus DOUBLE PRECISION NOT NULL DEFAULT 1.0,
     winner INTEGER CHECK (winner IN (1, 2))  -- NULL until a result is recorded
 );
 
@@ -48,6 +47,7 @@ CREATE TABLE IF NOT EXISTS match_players (
     PRIMARY KEY (match_id, player_id)
 );
 
--- Lets SQLite check "has this player played?" quickly when deleting a player.
+-- Lets Postgres check "has this player played?" quickly when deleting a
+-- player.
 CREATE INDEX IF NOT EXISTS idx_match_players_player_id
     ON match_players(player_id);

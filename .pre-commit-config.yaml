@@ -12,6 +12,9 @@ repos:
     hooks:
       - id: mypy
         language_version: python3  # Optional: specify Python version
+        # mypy runs in its own environment; give it the libraries whose
+        # types it needs to check our code (keep in sync with requirements.txt).
+        additional_dependencies: ["psycopg[binary]==3.2.10"]
 
   # Isort configuration
   - repo: https://github.com/pre-commit/mirrors-isort

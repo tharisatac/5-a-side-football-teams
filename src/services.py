@@ -27,7 +27,7 @@ from .repository import (
     MatchAlreadyRecordedError,
     MatchNotFoundError,
     PlayerNotFoundError,
-    SqliteRepository,
+    PostgresRepository,
     TeamKey,
 )
 from .teams import balance_teams
@@ -64,7 +64,7 @@ CSV_HEADERS = ("name",) + ATTRIBUTE_NAMES + ("form",)
 
 
 def update_player(
-    repo: SqliteRepository, name: str, changes: Mapping[str, int]
+    repo: PostgresRepository, name: str, changes: Mapping[str, int]
 ) -> Player:
     """
     Changes any of a player's attributes (1-10) and form (0-10) at once.
@@ -115,7 +115,9 @@ def update_player(
 # --------------------------
 
 
-def create_match(repo: SqliteRepository, player_names: Sequence[str]) -> Match:
+def create_match(
+    repo: PostgresRepository, player_names: Sequence[str]
+) -> Match:
     """
     Looks up the named players, balances them into two teams and stores the
     result as a new match.
@@ -148,7 +150,7 @@ def create_match(repo: SqliteRepository, player_names: Sequence[str]) -> Match:
     return match
 
 
-def delete_match(repo: SqliteRepository, match_id: int) -> Match:
+def delete_match(repo: PostgresRepository, match_id: int) -> Match:
     """
     Deletes a match, e.g. to pick teams again or remove a mistake. If it has
     a result, the form changes from that result are undone first.
@@ -170,7 +172,7 @@ def delete_match(repo: SqliteRepository, match_id: int) -> Match:
 
 
 def swap_players(
-    repo: SqliteRepository, match_id: int, name1: str, name2: str
+    repo: PostgresRepository, match_id: int, name1: str, name2: str
 ) -> Match:
     """
     Swaps two players between the teams of a match that hasn't been played,
@@ -218,7 +220,7 @@ def swap_players(
 
 
 def record_result(
-    repo: SqliteRepository, match_id: int, winner: TeamKey
+    repo: PostgresRepository, match_id: int, winner: TeamKey
 ) -> Match:
     """
     Records which team won a match, or changes it if a different winner was
@@ -251,7 +253,7 @@ def record_result(
     return _get_match(repo, match_id)
 
 
-def clear_result(repo: SqliteRepository, match_id: int) -> Match:
+def clear_result(repo: PostgresRepository, match_id: int) -> Match:
     """
     Marks a match as not played, undoing the form changes from its result.
     Does nothing if it has no result.
@@ -271,7 +273,7 @@ def clear_result(repo: SqliteRepository, match_id: int) -> Match:
     return _get_match(repo, match_id)
 
 
-def _get_match(repo: SqliteRepository, match_id: int) -> Match:
+def _get_match(repo: PostgresRepository, match_id: int) -> Match:
     """
     Returns the match.
 
@@ -294,7 +296,7 @@ def _get_match(repo: SqliteRepository, match_id: int) -> Match:
 # --------------------------
 
 
-def export_players(repo: SqliteRepository, filename: str) -> int:
+def export_players(repo: PostgresRepository, filename: str) -> int:
     """
     Writes all players to a CSV file.
 
@@ -324,7 +326,7 @@ def export_players(repo: SqliteRepository, filename: str) -> int:
 
 
 def import_players(
-    repo: SqliteRepository, filename: str
+    repo: PostgresRepository, filename: str
 ) -> Tuple[int, List[Tuple[str, Exception]]]:
     """
     Adds every player in a CSV file. A bad row is skipped rather than stopping
@@ -349,7 +351,7 @@ def import_players(
             name = row.get("name") or "<unknown>"
             try:
                 attributes = Attributes.from_values(
-                    {attr: float(row[attr]) for attr in ATTRIBUTE_NAMES}
+                    {attr: int(row[attr]) for attr in ATTRIBUTE_NAMES}
                 )
                 form = int(row.get("form") or DEFAULT_FORM)
                 repo.add_player(

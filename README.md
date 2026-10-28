@@ -3,17 +3,19 @@ A CLI for organising 5-a-side football: store players' skills, split a group
 into two balanced teams, and record results so each player's form adjusts.
 
 ## Setup
-Requires Python 3.14.
+Requires Python 3.14 and Docker.
 
 ```
 ./setup_venv.sh
 source venv/bin/activate
+docker compose up -d      # starts Postgres on localhost:5432
 ```
 
 ## Usage
-Data is stored in `football.db` in the project folder, whichever folder you
-run the CLI from. Set the `FOOTBALL_DB` environment variable to use a
-different file.
+Data is stored in Postgres. By default the CLI and API use the local
+database from `docker compose up -d`; set `DATABASE_URL` (e.g.
+`postgresql://user:password@host:5432/dbname`) to use another one. Tables are
+created automatically on first use.
 
 A player who is in a match can't be removed, so match history stays
 complete; delete the match first if needed. Each match remembers exactly how
@@ -84,12 +86,12 @@ src/api.py                 FastAPI routes -> services
 web/                       React + TypeScript UI (Vite), calls the API
 src/services.py            use-cases: create_match, record_result, CSV, ...
 src/teams.py, player.py    pure domain logic (no storage, no printing)
-src/repository.py          SQLite storage, Match, storage errors
+src/repository.py          Postgres storage, Match, storage errors
                            (tables in schema.sql)
 ```
 
 ## Development
 ```
-python -m pytest            # tests
+python -m pytest            # tests (needs docker compose up -d)
 pre-commit run --all-files  # black, isort, mypy
 ```

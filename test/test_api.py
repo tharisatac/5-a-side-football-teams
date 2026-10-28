@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 from src import services
 from src.api import _error_response, app, get_repo
 from src.player import InvalidValueError
-from src.repository import SqliteRepository
+from src.repository import PostgresRepository
 
 SKILLS = {
     "shooting": 7,
@@ -22,7 +22,7 @@ NAMES = ["Alice", "Bob", "Cara", "Dan"]
 
 
 @pytest.fixture
-def client(repo: SqliteRepository) -> Iterator[TestClient]:
+def client(repo: PostgresRepository) -> Iterator[TestClient]:
     """
     A client for the API, backed by the temporary `repo` database.
     """
