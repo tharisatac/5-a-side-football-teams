@@ -40,6 +40,31 @@ were made.
 
 Run `./run --help` (or `./run teams --help`, etc.) for every command.
 
+## Web API
+```
+uvicorn src.api:app --reload
+```
+Then open http://127.0.0.1:8000/docs to browse and try every endpoint. The
+API uses the same database and rules as the CLI.
+
+| Endpoint | Does |
+|---|---|
+| `GET /healthz` | Health check |
+| `GET/POST /players`, `GET/PATCH/DELETE /players/{name}` | Manage players |
+| `GET/POST /matches`, `GET/DELETE /matches/{id}` | Pick teams, history, cancel |
+| `PUT /matches/{id}/result` | Record the winner (safe to retry) |
+
+## Web UI
+A React app in `web/` for match day, the squad and match history. It talks
+to the web API, so run both:
+
+```
+uvicorn src.api:app --reload      # terminal 1: the API on port 8000
+cd web && npm install && npm run dev  # terminal 2: the UI
+```
+
+Then open http://localhost:5173. Requires Node.js 20+.
+
 ## How teams are balanced
 Each player's rating is a weighted average of their skills, scaled by form.
 Players are dealt into two teams in rating order, then pairs are swapped while
@@ -49,6 +74,8 @@ larger team gets a 1.2x rating boost.
 ## Code layout
 ```
 src/cli.py                 argparse commands -> services
+src/api.py                 FastAPI routes -> services
+web/                       React + TypeScript UI (Vite), calls the API
 src/services.py            use-cases: create_match, record_result, CSV, ...
 src/teams.py, player.py    pure domain logic (no storage, no printing)
 src/repository.py          SQLite storage, Match, storage errors

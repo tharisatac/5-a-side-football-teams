@@ -357,6 +357,16 @@ class SqliteRepository:
             ).fetchone()
             return None if row is None else self._load_match(conn, row)
 
+    def list_matches(self) -> List[Match]:
+        """
+        Returns all matches, newest first.
+        """
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM matches ORDER BY id DESC"
+            ).fetchall()
+            return [self._load_match(conn, row) for row in rows]
+
     def get_latest_match(self) -> Optional[Match]:
         """
         Returns the most recently created match, or None if there are none.
@@ -393,6 +403,7 @@ class SqliteRepository:
     ) -> None:
         """
         Saves the winner and the players' updated forms in one transaction.
+        If the match already has this winner, nothing is changed.
 
         :param match_id:
             The match ID.
@@ -403,7 +414,8 @@ class SqliteRepository:
 
         :raises:
             MatchNotFoundError: If the match does not exist.
-            MatchAlreadyRecordedError: If the match already has a result.
+            MatchAlreadyRecordedError: If the match already has a different
+                result.
         """
         with self._connect() as conn:
             # `winner IS NULL` makes this a no-op for an already-recorded
@@ -415,6 +427,11 @@ class SqliteRepository:
                 (_TEAM_NUMBERS[winner], match_id),
             )
             if cur.rowcount == 0:
+                row = conn.execute(
+                    "SELECT winner FROM matches WHERE id = ?", (match_id,)
+                ).fetchone()
+                if row is not None and _WINNERS[row["winner"]] == winner:
+                    return  # Same result already saved: leave forms alone.
                 self._raise_for_unchangeable_match(conn, match_id)
 
             conn.executemany(

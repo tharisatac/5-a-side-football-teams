@@ -274,7 +274,8 @@ def test_record_match_result(reset_database):
 
 def test_record_match_result_twice(reset_database):
     """
-    Tests that recording the same match twice is rejected.
+    Tests that recording the same result twice succeeds, and a different
+    result is rejected.
     """
     players = ["Alice", "Bob"]
     for player in players:
@@ -282,9 +283,12 @@ def test_record_match_result_twice(reset_database):
     run_cli_command(["teams", "create"] + players)
     run_cli_command(["teams", "result", "team1"])
 
-    result = run_cli_command(["teams", "result", "team1"], check=False)
-    assert result.returncode == 1
-    assert "already has a result" in result.stdout
+    same = run_cli_command(["teams", "result", "team1"])
+    assert "✅ Match recorded: team1 won!" in same.stdout
+
+    different = run_cli_command(["teams", "result", "team2"], check=False)
+    assert different.returncode == 1
+    assert "already has a result" in different.stdout
 
 
 def test_record_result_for_match_id(reset_database):

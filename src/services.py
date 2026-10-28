@@ -9,7 +9,7 @@ argument instead of creating one, so tests can pass in a throwaway database.
 """
 
 import csv
-from typing import List, Sequence, Tuple
+from typing import List, Mapping, Sequence, Tuple
 
 from .player import (
     ATTRIBUTE_NAMES,
@@ -61,48 +61,51 @@ CSV_HEADERS = ("name",) + ATTRIBUTE_NAMES + ("form",)
 # --------------------------
 
 
-def update_player_field(
-    repo: SqliteRepository, name: str, field: str, value: int
+def update_player(
+    repo: SqliteRepository, name: str, changes: Mapping[str, int]
 ) -> Player:
     """
-    Sets one attribute (1-10) or the form (0-10) of a player.
+    Changes any of a player's attributes (1-10) and form (0-10) at once.
+    Every value is checked before anything is saved, so an invalid value
+    leaves the player unchanged.
 
     :param repo:
         Where players are stored.
     :param name:
         The player's name.
-    :param field:
-        An attribute name such as "shooting", or "form".
-    :param value:
-        The new value.
+    :param changes:
+        Field name to new value, e.g. {"shooting": 9, "form": 6}. Fields
+        are attribute names or "form".
 
     :raises:
-        InvalidAttrError: If `field` is not an attribute or "form".
-        ValueError: If `value` is out of range.
+        InvalidAttrError: If a field is not an attribute or "form".
+        ValueError: If a value is out of range.
         PlayerNotFoundError: If the player does not exist.
 
     :return:
         The updated player.
     """
-    if field not in UPDATABLE_FIELDS:
-        raise InvalidAttrError(field)
+    for field in changes:
+        if field not in UPDATABLE_FIELDS:
+            raise InvalidAttrError(field)
 
     player = repo.get_player(name)
     if player is None:
         raise PlayerNotFoundError(name)
 
-    if field == "form":
-        if not MIN_FORM <= value <= MAX_FORM:
+    if "form" in changes:
+        form = changes["form"]
+        if not MIN_FORM <= form <= MAX_FORM:
             raise ValueError(
-                f"Invalid form: {value}. Must be between {MIN_FORM} and "
+                f"Invalid form: {form}. Must be between {MIN_FORM} and "
                 f"{MAX_FORM}."
             )
-        player.form = value
-    else:
-        values = player.attributes.to_values()
-        values[field] = value
-        # Attributes validates the 1-10 range.
-        player.attributes = Attributes.from_values(values)
+        player.form = form
+
+    values = player.attributes.to_values()
+    values.update({k: v for k, v in changes.items() if k != "form"})
+    # Attributes validates the 1-10 range.
+    player.attributes = Attributes.from_values(values)
 
     repo.update_player(player)
     return player
@@ -186,6 +189,9 @@ def record_result(
     +1 for the winners and -1 for the losers. The match's own snapshot of
     each player is left as it was.
 
+    Idempotent: recording the same winner again does nothing and succeeds,
+    so a retried request can't change anyone's form twice.
+
     :param repo:
         Where players and matches are stored.
     :param match_id:
@@ -196,7 +202,8 @@ def record_result(
     :raises:
         ValueError: If `winner` is not "team1" or "team2".
         MatchNotFoundError: If the match does not exist.
-        MatchAlreadyRecordedError: If the match already has a result.
+        MatchAlreadyRecordedError: If the match already has a different
+            result.
 
     :return:
         The match, with its winner set.
@@ -207,6 +214,8 @@ def record_result(
     match = repo.get_match(match_id)
     if match is None:
         raise MatchNotFoundError(match_id)
+    if match.winner == winner:
+        return match  # Already recorded: nothing to do.
     if match.winner is not None:
         raise MatchAlreadyRecordedError(match_id, match.winner)
 
