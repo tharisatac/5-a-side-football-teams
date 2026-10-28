@@ -1,0 +1,15 @@
+# Keep the build context small and secrets/local data out of the image.
+.git
+venv
+.venv
+**/__pycache__
+.pytest_cache
+.mypy_cache
+.hypothesis
+web/node_modules
+web/dist
+web/.vite
+football.db*
+*.csv
+test
+CLAUDE.md

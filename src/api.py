@@ -9,10 +9,12 @@ http://127.0.0.1:8000/docs for interactive documentation.
 import os
 from datetime import datetime
 from functools import lru_cache
+from pathlib import Path
 from typing import Annotated, Dict, List, Optional
 
-from fastapi import Depends, FastAPI, Request, status
-from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi import Depends, FastAPI, Request, Response, status
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field
 
 from . import services
@@ -68,6 +70,15 @@ async def _error_response(request: Request, exc: Exception) -> JSONResponse:
         status_code=ERROR_STATUS[error_type], content={"detail": str(exc)}
     )
 
+
+# The built React UI (`npm run build` in web/). The Docker image serves it
+# from here; in development Vite serves it instead and this folder may not
+# exist.
+UI_DIR = Path(
+    os.getenv(
+        "UI_DIR", Path(__file__).resolve().parent.parent / "web" / "dist"
+    )
+)
 
 app = FastAPI(title="Football Team Decider")
 for error_type in ERROR_STATUS:
@@ -268,10 +279,14 @@ def _match_out(match: Match) -> MatchOut:
 
 
 @app.get("/", include_in_schema=False)
-def root() -> RedirectResponse:
+def root() -> Response:
     """
-    Sends visitors to the interactive docs, until there is a UI to show.
+    Serves the UI if it has been built, otherwise sends visitors to the
+    interactive docs.
     """
+    index = UI_DIR / "index.html"
+    if index.is_file():
+        return FileResponse(index)
     return RedirectResponse(url="/docs")
 
 
@@ -524,3 +539,13 @@ def clear_result(match_id: int, repo: Repo) -> MatchOut:
         MatchNotFoundError: If the match does not exist (404).
     """
     return _match_out(services.clear_result(repo, match_id))
+
+
+# The UI's JavaScript and CSS (index.html refers to /assets/...). Mounted
+# last so it can't shadow an API route; check_dir=False lets the app start
+# when the UI hasn't been built.
+app.mount(
+    "/assets",
+    StaticFiles(directory=UI_DIR / "assets", check_dir=False),
+    name="assets",
+)

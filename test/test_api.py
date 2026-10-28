@@ -5,7 +5,7 @@ from typing import Iterator
 import pytest
 from fastapi.testclient import TestClient
 
-from src import services
+from src import api, services
 from src.api import _error_response, app, get_repo
 from src.player import InvalidValueError
 from src.repository import PostgresRepository
@@ -54,10 +54,25 @@ def _create_match(client: TestClient) -> dict:
 # -------------------------------------------------------------------
 
 
-def test_root_redirects_to_docs(client):
+def test_root_serves_the_built_ui(client, tmp_path, monkeypatch):
     """
-    Tests that the root URL isn't a dead end.
+    Tests that / serves the UI's index.html when the UI has been built.
     """
+    (tmp_path / "index.html").write_text("<h1>5-a-side</h1>")
+    monkeypatch.setattr(api, "UI_DIR", tmp_path)
+
+    response = client.get("/")
+
+    assert response.status_code == 200
+    assert "5-a-side" in response.text
+
+
+def test_root_redirects_to_docs(client, tmp_path, monkeypatch):
+    """
+    Tests that without a built UI the root URL isn't a dead end.
+    """
+    monkeypatch.setattr(api, "UI_DIR", tmp_path)
+
     response = client.get("/", follow_redirects=False)
 
     assert response.status_code == 307
