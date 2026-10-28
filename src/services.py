@@ -1,8 +1,11 @@
 """
-This module holds the app's use-cases: the steps that combine the balancer,
-the player rules and storage. Each function takes the repository as an
-argument instead of creating one, so the CLI (and later the API) decides which
-storage to use, and tests can pass in a throwaway database.
+This module holds the app's use-cases: what the app does, such as creating a
+match or recording a result. Each one applies the rules (balancing, form
+changes, validation) and uses the repository to save and load data.
+
+The CLI calls these functions, and the web API will call the same ones, so
+the rules live in one place. Each function takes the repository as an
+argument instead of creating one, so tests can pass in a throwaway database.
 """
 
 from typing import List, Sequence
@@ -20,6 +23,63 @@ from .repository import (
 from .teams import balance_teams
 
 UPDATABLE_FIELDS = ATTRIBUTE_NAMES + ("form",)
+
+
+# --------------------------
+# Players
+# --------------------------
+
+
+def update_player_field(
+    repo: SqliteRepository, name: str, field: str, value: int
+) -> Player:
+    """
+    Sets one attribute (1-10) or the form (0-10) of a player.
+
+    :param repo:
+        Where players are stored.
+    :param name:
+        The player's name.
+    :param field:
+        An attribute name such as "shooting", or "form".
+    :param value:
+        The new value.
+
+    :raises:
+        InvalidAttrError: If `field` is not an attribute or "form".
+        ValueError: If `value` is out of range.
+        PlayerNotFoundError: If the player does not exist.
+
+    :return:
+        The updated player.
+    """
+    if field not in UPDATABLE_FIELDS:
+        raise InvalidAttrError(field)
+
+    player = repo.get_player(name)
+    if player is None:
+        raise PlayerNotFoundError(name)
+
+    if field == "form":
+        if not MIN_FORM <= value <= MAX_FORM:
+            raise ValueError(
+                f"Invalid form: {value}. Must be between {MIN_FORM} and "
+                f"{MAX_FORM}."
+            )
+        player.form = value
+    else:
+        values = player.attributes.to_values()
+        values[field] = value
+        # Attributes validates the 1-10 range.
+        player.attributes = Attributes.from_values(values)
+
+    repo.update_player(player)
+    return player
+
+
+# --------------------------
+# Matches
+# --------------------------
 
 
 def create_match(repo: SqliteRepository, player_names: Sequence[str]) -> Match:
@@ -53,6 +113,38 @@ def create_match(repo: SqliteRepository, player_names: Sequence[str]) -> Match:
     if match is None:
         raise MatchNotFoundError(match_id)
     return match
+
+
+def cancel_match(repo: SqliteRepository, match_id: int) -> Match:
+    """
+    Deletes a match that hasn't been played, e.g. to pick teams again. A
+    match with a result can't be cancelled, so history stays complete.
+
+    :param repo:
+        Where players and matches are stored.
+    :param match_id:
+        The match ID.
+
+    :raises:
+        MatchNotFoundError: If the match does not exist.
+        MatchAlreadyRecordedError: If the match already has a result.
+
+    :return:
+        The cancelled match.
+    """
+    match = repo.get_match(match_id)
+    if match is None:
+        raise MatchNotFoundError(match_id)
+    if match.winner is not None:
+        raise MatchAlreadyRecordedError(match_id, match.winner)
+
+    repo.cancel_match(match_id)
+    return match
+
+
+# --------------------------
+# Results
+# --------------------------
 
 
 def record_result(
@@ -103,78 +195,9 @@ def record_result(
     return match
 
 
-def cancel_match(repo: SqliteRepository, match_id: int) -> Match:
-    """
-    Deletes a match that hasn't been played, e.g. to pick teams again. A
-    match with a result can't be cancelled, so history stays complete.
-
-    :param repo:
-        Where players and matches are stored.
-    :param match_id:
-        The match ID.
-
-    :raises:
-        MatchNotFoundError: If the match does not exist.
-        MatchAlreadyRecordedError: If the match already has a result.
-
-    :return:
-        The cancelled match.
-    """
-    match = repo.get_match(match_id)
-    if match is None:
-        raise MatchNotFoundError(match_id)
-    if match.winner is not None:
-        raise MatchAlreadyRecordedError(match_id, match.winner)
-
-    repo.cancel_match(match_id)
-    return match
-
-
-def update_player_field(
-    repo: SqliteRepository, name: str, field: str, value: int
-) -> Player:
-    """
-    Sets one attribute (1-10) or the form (0-10) of a player.
-
-    :param repo:
-        Where players are stored.
-    :param name:
-        The player's name.
-    :param field:
-        An attribute name such as "shooting", or "form".
-    :param value:
-        The new value.
-
-    :raises:
-        InvalidAttrError: If `field` is not an attribute or "form".
-        ValueError: If `value` is out of range.
-        PlayerNotFoundError: If the player does not exist.
-
-    :return:
-        The updated player.
-    """
-    if field not in UPDATABLE_FIELDS:
-        raise InvalidAttrError(field)
-
-    player = repo.get_player(name)
-    if player is None:
-        raise PlayerNotFoundError(name)
-
-    if field == "form":
-        if not MIN_FORM <= value <= MAX_FORM:
-            raise ValueError(
-                f"Invalid form: {value}. Must be between {MIN_FORM} and "
-                f"{MAX_FORM}."
-            )
-        player.form = value
-    else:
-        values = player.attributes.to_values()
-        values[field] = value
-        # Attributes validates the 1-10 range.
-        player.attributes = Attributes.from_values(values)
-
-    repo.update_player(player)
-    return player
+# --------------------------
+# Errors
+# --------------------------
 
 
 class InvalidAttrError(Exception):
