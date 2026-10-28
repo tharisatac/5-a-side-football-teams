@@ -18,8 +18,6 @@ __all__ = [
     "Player",
 ]
 
-NUM_ATTRIBUTES = 6
-
 # Form scale is 0-10, where 5 is average.
 DEFAULT_FORM = 5
 MIN_FORM = 0

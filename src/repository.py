@@ -3,7 +3,7 @@ This module defines the storage interface ("repository") the rest of the app
 talks to, plus the `Match` type and the errors a repository can raise.
 
 Code that needs to save or load data depends on `Repository`, not on a
-concrete database, so SQLite can later be swapped for Firestore without
+concrete database, so SQLite can later be swapped for Postgres without
 touching the CLI or the business logic.
 """
 
