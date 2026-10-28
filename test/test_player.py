@@ -1,6 +1,6 @@
 import pytest
 
-from src.player import ATTRIBUTE_WEIGHTS, Attributes, Player
+from src.player import ATTRIBUTE_WEIGHTS, Attributes, InvalidValueError, Player
 
 
 @pytest.fixture
@@ -58,30 +58,37 @@ def test_player_overall_rating(default_player):
     )
 
 
-def test_update_on_win(default_player):
+def test_name_is_trimmed():
     """
-    Ensures that updating form after a win increases the form and overall rating.
+    Ensures surrounding spaces are removed, so " Bob" and "Bob" are the same.
     """
-    player = default_player
-    old_overall = player.get_overall_rating()
-    player.update_form(won=True)
-    # Form should increase from 5 to 6
-    assert player.form == 6
-    # Overall rating should improve
-    assert player.get_overall_rating() > old_overall
+    player = Player(
+        name="  Bob  ", attributes=Attributes.from_values({}), form=5
+    )
+
+    assert player.name == "Bob"
 
 
-def test_update_on_loss(default_player):
+@pytest.mark.parametrize(
+    "name", ["", "   ", "A/B", "..", "-Bob", "x" * 51, "Bob?"]
+)
+def test_invalid_names_are_rejected(name):
     """
-    Ensures that updating form after a loss decreases the form and overall rating.
+    Ensures names are 1-50 characters of letters, digits, spaces and ' . -,
+    starting with a letter or digit, so every name works in a URL.
     """
-    player = default_player
-    old_overall = player.get_overall_rating()
-    player.update_form(won=False)
-    # Form should decrease from 5 to 4
-    assert player.form == 4
-    # Overall rating should drop
-    assert player.get_overall_rating() < old_overall
+    with pytest.raises(InvalidValueError):
+        Player(name=name, attributes=Attributes.from_values({}), form=5)
+
+
+@pytest.mark.parametrize(
+    "name", ["Bob", "Ben S", "O'Neil", "J.R.", "José", "Player 1"]
+)
+def test_valid_names_are_accepted(name):
+    """
+    Ensures ordinary names, including accented letters, are allowed.
+    """
+    assert Player(name=name, attributes=Attributes.from_values({}), form=5)
 
 
 def test_form_clamping():

@@ -1,9 +1,13 @@
+import asyncio
+import json
 from typing import Iterator
 
 import pytest
 from fastapi.testclient import TestClient
 
-from src.api import app, get_repo
+from src import services
+from src.api import _error_response, app, get_repo
+from src.player import InvalidValueError
 from src.repository import SqliteRepository
 
 SKILLS = {
@@ -338,3 +342,58 @@ def test_record_result_unknown_match(client):
     response = client.put("/matches/999/result", json={"winner": "team1"})
 
     assert response.status_code == 404
+
+
+# -------------------------------------------------------------------
+# Error handling
+# -------------------------------------------------------------------
+
+
+def test_subclass_of_a_mapped_error_uses_its_parent_status():
+    """
+    FastAPI sends subclasses of a mapped error to the same handler, so the
+    handler must find the parent's status instead of failing.
+    """
+
+    class TooHigh(InvalidValueError):
+        pass
+
+    response = asyncio.run(_error_response(None, TooHigh("too high")))
+
+    assert response.status_code == 422
+    assert json.loads(response.body) == {"detail": "too high"}
+
+
+def test_unexpected_value_error_is_a_server_error(client, squad, monkeypatch):
+    """
+    A plain ValueError is a bug, not bad input: it must be a 500, not a 422
+    that blames the caller.
+    """
+
+    def broken(*args):
+        raise ValueError("internal bug")
+
+    monkeypatch.setattr(services, "create_match", broken)
+    unsafe_client = TestClient(app, raise_server_exceptions=False)
+
+    response = unsafe_client.post("/matches", json={"players": NAMES})
+
+    assert response.status_code == 500
+
+
+@pytest.mark.parametrize(
+    "name, status_code, stored",
+    [(" Bob ", 201, "Bob"), ("A/B", 422, None), ("   ", 422, None)],
+)
+def test_player_names_are_trimmed_and_checked(
+    client, name, status_code, stored
+):
+    """
+    Surrounding spaces are removed, and names that can't be used in a URL
+    are rejected.
+    """
+    response = client.post("/players", json={"name": name, "skills": SKILLS})
+
+    assert response.status_code == status_code
+    if stored:
+        assert client.get(f"/players/{stored}").status_code == 200

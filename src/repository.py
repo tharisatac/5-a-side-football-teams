@@ -13,9 +13,9 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, Iterator, List, Literal, Optional, Sequence
+from typing import Dict, Iterator, List, Literal, Mapping, Optional
 
-from .player import ATTRIBUTE_NAMES, Attributes, Player
+from .player import ATTRIBUTE_NAMES, MAX_FORM, MIN_FORM, Attributes, Player
 from .teams import Team
 
 # --------------------------
@@ -244,24 +244,39 @@ class SqliteRepository:
             ).fetchall()
         return [self._row_to_player(row) for row in rows]
 
-    def update_player(self, player: Player) -> None:
+    def update_player(self, name: str, changes: Mapping[str, int]) -> None:
         """
-        Overwrites the stored attributes and form of a player, by name.
+        Sets some of a player's attributes and/or form. Only the given columns
+        are written, so a change made at the same time to another column
+        (e.g. form, by a match result) isn't overwritten.
 
-        :param player:
-            The player with their new values.
+        :param name:
+            The player's name.
+        :param changes:
+            Column name to new value, e.g. {"shooting": 9}. Must already be
+            validated.
 
         :raises:
             PlayerNotFoundError: If the player does not exist.
         """
-        assignments = ", ".join(f"{col} = ?" for col in _PLAYER_COLUMNS[1:])
+        # Only known column names are put into the SQL itself; values are
+        # passed separately as `?` parameters.
+        columns = [col for col in _PLAYER_COLUMNS[1:] if col in changes]
+        if len(columns) != len(changes):
+            raise ValueError(f"Unknown columns in {sorted(changes)}")
         with self._connect() as conn:
-            cur = conn.execute(
-                f"UPDATE players SET {assignments} WHERE name = ?",
-                self._player_values(player)[1:] + (player.name,),
-            )
-            if cur.rowcount == 0:
-                raise PlayerNotFoundError(player.name)
+            if not columns:
+                found = conn.execute(
+                    "SELECT 1 FROM players WHERE name = ?", (name,)
+                ).fetchone()
+            else:
+                assignments = ", ".join(f"{col} = ?" for col in columns)
+                found = conn.execute(
+                    f"UPDATE players SET {assignments} WHERE name = ?",
+                    [changes[col] for col in columns] + [name],
+                ).rowcount
+            if not found:
+                raise PlayerNotFoundError(name)
 
     def remove_player(self, name: str) -> None:
         """
@@ -399,18 +414,19 @@ class SqliteRepository:
                 self._raise_for_unchangeable_match(conn, match_id)
 
     def record_result(
-        self, match_id: int, winner: TeamKey, players: Sequence[Player]
+        self, match_id: int, winner: TeamKey, form_change: int
     ) -> None:
         """
-        Saves the winner and the players' updated forms in one transaction.
-        If the match already has this winner, nothing is changed.
+        Saves the winner, then raises the winners' form and lowers the losers'
+        by `form_change`, kept within MIN_FORM-MAX_FORM, all in one
+        transaction. If the match already has this winner, nothing changes.
 
         :param match_id:
             The match ID.
         :param winner:
             "team1" or "team2".
-        :param players:
-            The players with their new forms.
+        :param form_change:
+            How much each player's form moves.
 
         :raises:
             MatchNotFoundError: If the match does not exist.
@@ -434,10 +450,23 @@ class SqliteRepository:
                     return  # Same result already saved: leave forms alone.
                 self._raise_for_unchangeable_match(conn, match_id)
 
-            conn.executemany(
-                "UPDATE players SET form = ? WHERE name = ?",
-                [(player.form, player.name) for player in players],
-            )
+            # The database does the arithmetic (`form + ?`) instead of us
+            # reading form, changing it in Python and writing it back. Two
+            # results recorded at once then can't overwrite each other.
+            for team_number in (1, 2):
+                won = team_number == _TEAM_NUMBERS[winner]
+                conn.execute(
+                    "UPDATE players SET form = MAX(?, MIN(?, form + ?)) "
+                    "WHERE id IN (SELECT player_id FROM match_players "
+                    "WHERE match_id = ? AND team_number = ?)",
+                    (
+                        MIN_FORM,
+                        MAX_FORM,
+                        form_change if won else -form_change,
+                        match_id,
+                        team_number,
+                    ),
+                )
 
     # --------------------------
     # Database

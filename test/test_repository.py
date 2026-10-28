@@ -60,12 +60,28 @@ def test_list_players_in_insertion_order(repo, stored_players):
 
 def test_update_player(repo, stored_players):
     """
-    Tests that update_player overwrites attributes and form.
+    Tests that update_player sets the given attributes and form.
     """
-    updated = make_player("Player 1", score=3, form=9)
-    repo.update_player(updated)
+    repo.update_player("Player 1", {"shooting": 3, "form": 9})
 
-    assert repo.get_player("Player 1") == updated
+    player = repo.get_player("Player 1")
+    assert player is not None
+    assert player.attributes.shooting.score == 3
+    assert player.form == 9
+    assert player.attributes.passing.score == 8
+
+
+def test_update_player_only_writes_given_columns(repo, stored_players):
+    """
+    Tests that changing one column leaves the others as they are in the
+    database, so a concurrent form change by a match result isn't undone.
+    """
+    repo.update_player("Player 1", {"form": 8})
+
+    repo.update_player("Player 1", {"shooting": 2})
+
+    player = repo.get_player("Player 1")
+    assert player is not None and player.form == 8
 
 
 def test_update_nonexistent_player(repo):
@@ -73,7 +89,7 @@ def test_update_nonexistent_player(repo):
     Tests that updating an unknown player raises.
     """
     with pytest.raises(PlayerNotFoundError):
-        repo.update_player(make_player("Nobody"))
+        repo.update_player("Nobody", {"form": 1})
 
 
 def test_remove_player(repo, stored_players):
@@ -99,7 +115,7 @@ def test_reset_forms(repo, stored_players):
     """
     Tests that every player's form is reset.
     """
-    repo.update_player(make_player("Player 1", form=9))
+    repo.update_player("Player 1", {"form": 9})
     repo.reset_forms(5)
 
     assert {p.form for p in repo.list_players()} == {5}
@@ -188,21 +204,42 @@ def test_get_latest_match(repo, stored_players):
 
 def test_record_result(repo, stored_players):
     """
-    Tests that the winner and the given forms are saved, and that the
-    match's snapshot keeps the forms from when it was created.
+    Tests that the winner is saved, winners' form goes up and losers' goes
+    down, and the match's snapshot keeps the forms from when it was created.
     """
     match_id = repo.create_match(
         Team(stored_players[:2]), Team(stored_players[2:])
     )
-    winners = [make_player(p.name, form=6) for p in stored_players[:2]]
 
-    repo.record_result(match_id, "team1", winners)
+    repo.record_result(match_id, "team1", 1)
 
     match = repo.get_match(match_id)
     assert match is not None
     assert match.winner == "team1"
     assert [p.form for p in match.team1.players] == [5, 5]
-    assert [repo.get_player(p.name).form for p in winners] == [6, 6]
+    forms = {p.name: p.form for p in repo.list_players()}
+    assert forms == {
+        "Player 1": 6,
+        "Player 2": 6,
+        "Player 3": 4,
+        "Player 4": 4,
+    }
+
+
+def test_record_result_keeps_form_in_range(repo, stored_players):
+    """
+    Tests that form doesn't go above 10 for a winner or below 0 for a loser.
+    """
+    repo.update_player("Player 1", {"form": 10})
+    repo.update_player("Player 3", {"form": 0})
+    match_id = repo.create_match(
+        Team(stored_players[:2]), Team(stored_players[2:])
+    )
+
+    repo.record_result(match_id, "team1", 1)
+
+    assert repo.get_player("Player 1").form == 10
+    assert repo.get_player("Player 3").form == 0
 
 
 def test_record_same_result_twice(repo, stored_players):
@@ -213,12 +250,12 @@ def test_record_same_result_twice(repo, stored_players):
     match_id = repo.create_match(
         Team(stored_players[:2]), Team(stored_players[2:])
     )
-    repo.record_result(match_id, "team1", [])
+    repo.record_result(match_id, "team1", 1)
 
-    repo.record_result(match_id, "team1", [make_player("Player 1", form=0)])
+    repo.record_result(match_id, "team1", 1)
 
     player = repo.get_player("Player 1")
-    assert player is not None and player.form == 5
+    assert player is not None and player.form == 6
 
 
 def test_record_result_twice(repo, stored_players):
@@ -228,16 +265,14 @@ def test_record_result_twice(repo, stored_players):
     match_id = repo.create_match(
         Team(stored_players[:2]), Team(stored_players[2:])
     )
-    repo.record_result(match_id, "team1", [])
+    repo.record_result(match_id, "team1", 1)
 
     with pytest.raises(MatchAlreadyRecordedError) as exc:
-        repo.record_result(
-            match_id, "team2", [make_player("Player 1", form=0)]
-        )
+        repo.record_result(match_id, "team2", 1)
 
     assert exc.value.winner == "team1"
     player = repo.get_player("Player 1")
-    assert player is not None and player.form == 5
+    assert player is not None and player.form == 6
 
 
 def test_record_result_unknown_match(repo):
@@ -245,7 +280,7 @@ def test_record_result_unknown_match(repo):
     Tests that recording a result for an unknown match raises.
     """
     with pytest.raises(MatchNotFoundError):
-        repo.record_result(999, "team1", [])
+        repo.record_result(999, "team1", 1)
 
 
 def test_match_keeps_snapshot_of_players(repo, stored_players):
@@ -255,7 +290,18 @@ def test_match_keeps_snapshot_of_players(repo, stored_players):
     match_id = repo.create_match(
         Team(stored_players[:2]), Team(stored_players[2:])
     )
-    repo.update_player(make_player("Player 1", score=1, form=0))
+    repo.update_player(
+        "Player 1",
+        {
+            "shooting": 1,
+            "dribbling": 1,
+            "passing": 1,
+            "tackling": 1,
+            "fitness": 1,
+            "goalkeeping": 1,
+            "form": 0,
+        },
+    )
 
     match = repo.get_match(match_id)
     assert match is not None
@@ -305,7 +351,7 @@ def test_cannot_cancel_recorded_match(repo, stored_players):
     match_id = repo.create_match(
         Team(stored_players[:2]), Team(stored_players[2:])
     )
-    repo.record_result(match_id, "team1", [])
+    repo.record_result(match_id, "team1", 1)
 
     with pytest.raises(MatchAlreadyRecordedError):
         repo.cancel_match(match_id)
