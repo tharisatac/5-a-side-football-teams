@@ -58,8 +58,9 @@ def balance_teams(players: Sequence[Player]) -> Tuple[Team, Team]:
     :param players:
         The players to split. Must contain at least 2 unique names.
 
-    :raises NotEnoughPlayersError: If fewer than 2 players are given.
-    :raises DuplicatePlayerError: If the same player name appears twice.
+    :raises:
+        NotEnoughPlayersError: If fewer than 2 players are given.
+        DuplicatePlayerError: If the same player name appears twice.
 
     :return:
         The two balanced teams.
@@ -83,6 +84,14 @@ def improve_balance(team_1: Team, team_2: Team) -> Tuple[Team, Team]:
     difference between the teams, until no swap improves it.
 
     The input teams are left untouched; new teams are returned.
+
+    :param team_1:
+        The first team.
+    :param team_2:
+        The second team.
+
+    :return:
+        The two rebalanced teams.
     """
     team_1 = Team(list(team_1.players), team_1.bonus)
     team_2 = Team(list(team_2.players), team_2.bonus)
@@ -116,6 +125,16 @@ def _distribute_players(
     """
     Distributes players into two teams using a zigzag method, then applies a
     rating bonus to the larger team if team sizes are uneven.
+
+    :param players:
+        The players to distribute.
+    :param team_1_size:
+        How many players team 1 gets.
+    :param team_2_size:
+        How many players team 2 gets.
+
+    :return:
+        The two teams.
     """
     sorted_players = sorted(
         players, key=lambda x: x.get_overall_rating(), reverse=True
@@ -143,6 +162,15 @@ def _distribute_players(
 def _swap_players(team_1: Team, team_2: Team, idx1: int, idx2: int) -> None:
     """
     Swaps two players between teams based on their indices.
+
+    :param team_1:
+        The first team.
+    :param team_2:
+        The second team.
+    :param idx1:
+        The index of the player in team 1.
+    :param idx2:
+        The index of the player in team 2.
     """
     team_1.players[idx1], team_2.players[idx2] = (
         team_2.players[idx2],
@@ -153,6 +181,11 @@ def _swap_players(team_1: Team, team_2: Team, idx1: int, idx2: int) -> None:
 def _team_rating_diff(team_1: Team, team_2: Team) -> float:
     """
     Determines the absolute difference between the two teams' ratings.
+
+    :param team_1:
+        The first team.
+    :param team_2:
+        The second team.
     """
     return abs(team_1.get_overall_rating() - team_2.get_overall_rating())
 

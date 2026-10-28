@@ -44,8 +44,10 @@ class SqliteRepository:
 
     def __init__(self, path: str = DEFAULT_DB_PATH):
         """
-        Opens (or creates) the database at `path` and creates any missing
-        tables.
+        Opens (or creates) the database and creates any missing tables.
+
+        :param path:
+            The database file. Defaults to football.db in the project folder.
         """
         self.path = path
         self._create_schema()
@@ -75,7 +77,11 @@ class SqliteRepository:
         """
         Adds a new player.
 
-        :raises PlayerAlreadyExistsError: If the name is taken.
+        :param player:
+            The player to add.
+
+        :raises:
+            PlayerAlreadyExistsError: If the name is taken.
         """
         columns = ", ".join(_PLAYER_COLUMNS)
         placeholders = ", ".join("?" for _ in _PLAYER_COLUMNS)
@@ -93,6 +99,9 @@ class SqliteRepository:
     def get_player(self, name: str) -> Optional[Player]:
         """
         Returns the player, or None if there is no player with that name.
+
+        :param name:
+            The player's name.
         """
         with self._connect() as conn:
             row = conn.execute(
@@ -115,9 +124,13 @@ class SqliteRepository:
 
     def update_player(self, player: Player) -> None:
         """
-        Overwrites the stored attributes and form of `player`, by name.
+        Overwrites the stored attributes and form of a player, by name.
 
-        :raises PlayerNotFoundError: If the player does not exist.
+        :param player:
+            The player with their new values.
+
+        :raises:
+            PlayerNotFoundError: If the player does not exist.
         """
         assignments = ", ".join(f"{col} = ?" for col in _PLAYER_COLUMNS[1:])
         with self._connect() as conn:
@@ -132,8 +145,12 @@ class SqliteRepository:
         """
         Removes a player who has never played in a match.
 
-        :raises PlayerNotFoundError: If the player does not exist.
-        :raises PlayerHasMatchesError: If the player is in any match.
+        :param name:
+            The player's name.
+
+        :raises:
+            PlayerNotFoundError: If the player does not exist.
+            PlayerHasMatchesError: If the player is in any match.
         """
         try:
             with self._connect() as conn:
@@ -150,7 +167,10 @@ class SqliteRepository:
 
     def reset_forms(self, form: int) -> None:
         """
-        Sets every player's form to `form`.
+        Sets every player's form to the same value.
+
+        :param form:
+            The new form (0-10).
         """
         with self._connect() as conn:
             conn.execute("UPDATE players SET form = ?", (form,))
@@ -161,10 +181,19 @@ class SqliteRepository:
 
     def create_match(self, team1: Team, team2: Team) -> int:
         """
-        Stores a new match with no result and returns its ID. Each player's
-        skills and form are saved with the match as a snapshot.
+        Stores a new match with no result. Each player's skills and form are
+        saved with the match as a snapshot.
 
-        :raises PlayerNotFoundError: If a team contains an unknown player.
+        :param team1:
+            The first team.
+        :param team2:
+            The second team.
+
+        :raises:
+            PlayerNotFoundError: If a team contains an unknown player.
+
+        :return:
+            The new match's ID.
         """
         with self._connect() as conn:
             cur = conn.execute(
@@ -196,6 +225,9 @@ class SqliteRepository:
     def get_match(self, match_id: int) -> Optional[Match]:
         """
         Returns the match, or None if there is no match with that ID.
+
+        :param match_id:
+            The match ID.
         """
         with self._connect() as conn:
             row = conn.execute(
@@ -218,8 +250,12 @@ class SqliteRepository:
         Deletes a match that has no result yet. Its `match_players` rows are
         deleted too, by the ON DELETE CASCADE on `match_players.match_id`.
 
-        :raises MatchNotFoundError: If the match does not exist.
-        :raises MatchAlreadyRecordedError: If the match already has a result.
+        :param match_id:
+            The match ID.
+
+        :raises:
+            MatchNotFoundError: If the match does not exist.
+            MatchAlreadyRecordedError: If the match already has a result.
         """
         with self._connect() as conn:
             # `winner IS NULL` means a recorded match is never deleted.
@@ -236,8 +272,16 @@ class SqliteRepository:
         """
         Saves the winner and the players' updated forms in one transaction.
 
-        :raises MatchNotFoundError: If the match does not exist.
-        :raises MatchAlreadyRecordedError: If the match already has a result.
+        :param match_id:
+            The match ID.
+        :param winner:
+            "team1" or "team2".
+        :param players:
+            The players with their new forms.
+
+        :raises:
+            MatchNotFoundError: If the match does not exist.
+            MatchAlreadyRecordedError: If the match already has a result.
         """
         with self._connect() as conn:
             # `winner IS NULL` makes this a no-op for an already-recorded
@@ -284,6 +328,15 @@ def _raise_for_unchangeable_match(
     """
     Called when an update or delete limited to `winner IS NULL` matched no
     rows: raises the error explaining why.
+
+    :param conn:
+        The open connection.
+    :param match_id:
+        The match ID.
+
+    :raises:
+        MatchNotFoundError: If the match does not exist.
+        MatchAlreadyRecordedError: If the match already has a result.
     """
     row = conn.execute(
         "SELECT winner FROM matches WHERE id = ?", (match_id,)
@@ -296,6 +349,9 @@ def _raise_for_unchangeable_match(
 def _player_values(player: Player) -> tuple:
     """
     Returns the player's values in `_PLAYER_COLUMNS` order.
+
+    :param player:
+        The player.
     """
     values = player.attributes.to_values()
     return (
@@ -308,6 +364,9 @@ def _player_values(player: Player) -> tuple:
 def _row_to_player(row: sqlite3.Row) -> Player:
     """
     Builds a Player from a row containing `_PLAYER_COLUMNS`.
+
+    :param row:
+        A row from `players` or `match_players` (joined with the name).
     """
     attributes = Attributes.from_values(
         {name: row[name] for name in ATTRIBUTE_NAMES}
@@ -319,6 +378,11 @@ def _load_match(conn: sqlite3.Connection, row: sqlite3.Row) -> Match:
     """
     Builds a Match from a `matches` row by loading its players. Skills and
     form come from the snapshot taken when the match was created.
+
+    :param conn:
+        The open connection.
+    :param row:
+        A row from `matches`.
     """
     columns = ", ".join(
         ["p.name"] + [f"mp.{col}" for col in _PLAYER_COLUMNS[1:]]

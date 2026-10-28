@@ -27,9 +27,18 @@ def create_match(repo: Repository, player_names: Sequence[str]) -> Match:
     Looks up the named players, balances them into two teams and stores the
     result as a new match.
 
-    :raises PlayerNotFoundError: If a name does not exist.
-    :raises DuplicatePlayerError: If a name is given more than once.
-    :raises NotEnoughPlayersError: If fewer than 2 names are given.
+    :param repo:
+        Where players and matches are stored.
+    :param player_names:
+        The names of the players taking part.
+
+    :raises:
+        PlayerNotFoundError: If a name does not exist.
+        DuplicatePlayerError: If a name is given more than once.
+        NotEnoughPlayersError: If fewer than 2 names are given.
+
+    :return:
+        The new match.
     """
     players: List[Player] = []
     for name in player_names:
@@ -52,9 +61,20 @@ def record_result(repo: Repository, match_id: int, winner: TeamKey) -> Match:
     +1 for the winners and -1 for the losers. The match's own snapshot of
     each player is left as it was.
 
-    :raises ValueError: If `winner` is not "team1" or "team2".
-    :raises MatchNotFoundError: If the match does not exist.
-    :raises MatchAlreadyRecordedError: If the match already has a result.
+    :param repo:
+        Where players and matches are stored.
+    :param match_id:
+        The match ID.
+    :param winner:
+        "team1" or "team2".
+
+    :raises:
+        ValueError: If `winner` is not "team1" or "team2".
+        MatchNotFoundError: If the match does not exist.
+        MatchAlreadyRecordedError: If the match already has a result.
+
+    :return:
+        The match, with its winner set.
     """
     if winner not in TEAM_KEYS:
         raise ValueError(f"Winner must be 'team1' or 'team2', got '{winner}'.")
@@ -86,8 +106,17 @@ def cancel_match(repo: Repository, match_id: int) -> Match:
     Deletes a match that hasn't been played, e.g. to pick teams again. A
     match with a result can't be cancelled, so history stays complete.
 
-    :raises MatchNotFoundError: If the match does not exist.
-    :raises MatchAlreadyRecordedError: If the match already has a result.
+    :param repo:
+        Where players and matches are stored.
+    :param match_id:
+        The match ID.
+
+    :raises:
+        MatchNotFoundError: If the match does not exist.
+        MatchAlreadyRecordedError: If the match already has a result.
+
+    :return:
+        The cancelled match.
     """
     match = repo.get_match(match_id)
     if match is None:
@@ -105,9 +134,22 @@ def update_player_field(
     """
     Sets one attribute (1-10) or the form (0-10) of a player.
 
-    :raises InvalidAttrError: If `field` is not an attribute or "form".
-    :raises ValueError: If `value` is out of range.
-    :raises PlayerNotFoundError: If the player does not exist.
+    :param repo:
+        Where players are stored.
+    :param name:
+        The player's name.
+    :param field:
+        An attribute name such as "shooting", or "form".
+    :param value:
+        The new value.
+
+    :raises:
+        InvalidAttrError: If `field` is not an attribute or "form".
+        ValueError: If `value` is out of range.
+        PlayerNotFoundError: If the player does not exist.
+
+    :return:
+        The updated player.
     """
     if field not in UPDATABLE_FIELDS:
         raise InvalidAttrError(field)

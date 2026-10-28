@@ -40,6 +40,9 @@ class Match:
     def team(self, key: TeamKey) -> Team:
         """
         Returns the team for "team1" or "team2".
+
+        :param key:
+            "team1" or "team2".
         """
         return self.team1 if key == "team1" else self.team2
 
@@ -52,13 +55,22 @@ class Repository(Protocol):
 
     def add_player(self, player: Player) -> None:
         """
-        :raises PlayerAlreadyExistsError: If the name is taken.
+        Adds a new player.
+
+        :param player:
+            The player to add.
+
+        :raises:
+            PlayerAlreadyExistsError: If the name is taken.
         """
         ...
 
     def get_player(self, name: str) -> Optional[Player]:
         """
         Returns the player, or None if there is no player with that name.
+
+        :param name:
+            The player's name.
         """
         ...
 
@@ -70,9 +82,13 @@ class Repository(Protocol):
 
     def update_player(self, player: Player) -> None:
         """
-        Overwrites the stored attributes and form of `player`, by name.
+        Overwrites the stored attributes and form of a player, by name.
 
-        :raises PlayerNotFoundError: If the player does not exist.
+        :param player:
+            The player with their new values.
+
+        :raises:
+            PlayerNotFoundError: If the player does not exist.
         """
         ...
 
@@ -80,24 +96,40 @@ class Repository(Protocol):
         """
         Removes a player who has never played in a match.
 
-        :raises PlayerNotFoundError: If the player does not exist.
-        :raises PlayerHasMatchesError: If the player is in any match.
+        :param name:
+            The player's name.
+
+        :raises:
+            PlayerNotFoundError: If the player does not exist.
+            PlayerHasMatchesError: If the player is in any match.
         """
         ...
 
     def reset_forms(self, form: int) -> None:
         """
-        Sets every player's form to `form`.
+        Sets every player's form to the same value.
+
+        :param form:
+            The new form (0-10).
         """
         ...
 
     def create_match(self, team1: Team, team2: Team) -> int:
         """
-        Stores a new match with no result and returns its ID. The players'
-        skills and form are stored with it, so the match keeps them even if
-        the players change later.
+        Stores a new match with no result. The players' skills and form are
+        stored with it, so the match keeps them even if the players change
+        later.
 
-        :raises PlayerNotFoundError: If a team contains an unknown player.
+        :param team1:
+            The first team.
+        :param team2:
+            The second team.
+
+        :raises:
+            PlayerNotFoundError: If a team contains an unknown player.
+
+        :return:
+            The new match's ID.
         """
         ...
 
@@ -105,6 +137,9 @@ class Repository(Protocol):
         """
         Returns the match, or None if there is no match with that ID. Its
         players have the skills and form they had when it was created.
+
+        :param match_id:
+            The match ID.
         """
         ...
 
@@ -118,8 +153,12 @@ class Repository(Protocol):
         """
         Deletes a match that has no result yet, along with its players' rows.
 
-        :raises MatchNotFoundError: If the match does not exist.
-        :raises MatchAlreadyRecordedError: If the match already has a result.
+        :param match_id:
+            The match ID.
+
+        :raises:
+            MatchNotFoundError: If the match does not exist.
+            MatchAlreadyRecordedError: If the match already has a result.
         """
         ...
 
@@ -130,8 +169,16 @@ class Repository(Protocol):
         Saves the winner and the players' updated (current) forms as a single
         change: either both are saved or neither is.
 
-        :raises MatchNotFoundError: If the match does not exist.
-        :raises MatchAlreadyRecordedError: If the match already has a result.
+        :param match_id:
+            The match ID.
+        :param winner:
+            "team1" or "team2".
+        :param players:
+            The players with their new forms.
+
+        :raises:
+            MatchNotFoundError: If the match does not exist.
+            MatchAlreadyRecordedError: If the match already has a result.
         """
         ...
 

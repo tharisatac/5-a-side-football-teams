@@ -109,6 +109,18 @@ class Attributes:
 
     @classmethod
     def from_values(cls, values: dict[str, float]) -> "Attributes":
+        """
+        Builds Attributes from a dict of scores. Missing ones default to 5.
+
+        :param values:
+            Attribute name to score (1-10), e.g. {"shooting": 8}.
+
+        :raises:
+            ValueError: If a score is not a number or not between 1 and 10.
+
+        :return:
+            The attributes.
+        """
         for key, value in values.items():
             if not isinstance(value, (int, float)):
                 raise ValueError(
@@ -164,10 +176,12 @@ class Player:
 
         The multiplier is 1 + 0.05 * (form - 5). That is, form 5 is neutral.
 
-        :param round:
+        :param round_num:
             Whether to round to 2 decimals. This should only be True if
             outputting to the end user.
 
+        :return:
+            The overall rating.
         """
         base_rating = self._get_base_rating()
         multiplier = 1 + 0.05 * (self.form - 5)
@@ -179,6 +193,9 @@ class Player:
         """
         Updates the player's form based on the outcome of a match.
         Increase form if won, decrease if lost.
+
+        :param won:
+            Whether the player's team won.
         """
         if won:
             self.form = min(self.form + 1, MAX_FORM)

@@ -13,9 +13,18 @@ CSV_HEADERS = ("name",) + ATTRIBUTE_NAMES + ("form",)
 
 def export_players(repo: Repository, filename: str) -> int:
     """
-    Writes all players to `filename` and returns how many were written.
+    Writes all players to a CSV file.
 
-    :raises OSError: If the file cannot be written.
+    :param repo:
+        Where the players are read from.
+    :param filename:
+        The CSV file to write. It is overwritten if it exists.
+
+    :raises:
+        OSError: If the file cannot be written.
+
+    :return:
+        The number of players written.
     """
     players = repo.list_players()
     with open(filename, mode="w", newline="") as f:
@@ -35,10 +44,16 @@ def import_players(
     repo: Repository, filename: str
 ) -> Tuple[int, List[Tuple[str, Exception]]]:
     """
-    Adds every player in `filename`. A bad row is skipped rather than stopping
+    Adds every player in a CSV file. A bad row is skipped rather than stopping
     the import. Extra columns (such as an old `id` column) are ignored.
 
-    :raises FileNotFoundError: If the file does not exist.
+    :param repo:
+        Where the players are added.
+    :param filename:
+        The CSV file to read.
+
+    :raises:
+        FileNotFoundError: If the file does not exist.
 
     :return:
         The number of players imported, and a (name, error) pair for each
