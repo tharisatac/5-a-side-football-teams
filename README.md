@@ -23,6 +23,17 @@ To stop: Ctrl+C in the API and UI terminals, then `docker compose stop`. Your
 data is kept in a Docker volume; `docker compose down -v` deletes it for a
 fresh start.
 
+### Or run everything in Docker
+The `Dockerfile` builds one image that serves the API and the built UI
+together, the same way it runs in the cloud:
+
+```
+docker compose --profile app up --build    # database + app
+```
+
+Open http://localhost:8080. Stop with Ctrl+C (or `docker compose --profile app
+down`). No Python or Node needed on your machine for this, just Docker.
+
 ## Usage
 Data is stored in Postgres. By default the CLI and API use the local
 database from `docker compose up -d`; set `DATABASE_URL` (e.g.

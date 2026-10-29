@@ -11,6 +11,6 @@ source venv/bin/activate
 # .\venv\Scripts\activate
 
 # Step 3: Install dependencies
-pip install -r requirements.txt
+pip install -r requirements-dev.txt
 
 echo "Virtual environment set up successfully and dependencies installed!"
