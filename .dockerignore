@@ -13,3 +13,5 @@ football.db*
 *.csv
 test
 CLAUDE.md
+# Vite bakes VITE_* values from .env files into the public JavaScript.
+**/.env*

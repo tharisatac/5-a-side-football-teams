@@ -12,9 +12,8 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Annotated, Dict, List, Optional
 
-from fastapi import Depends, FastAPI, Request, Response, status
+from fastapi import Depends, FastAPI, HTTPException, Request, Response, status
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
-from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field
 
 from . import services
@@ -278,18 +277,6 @@ def _match_out(match: Match) -> MatchOut:
 # --------------------------
 
 
-@app.get("/", include_in_schema=False)
-def root() -> Response:
-    """
-    Serves the UI if it has been built, otherwise sends visitors to the
-    interactive docs.
-    """
-    index = UI_DIR / "index.html"
-    if index.is_file():
-        return FileResponse(index)
-    return RedirectResponse(url="/docs")
-
-
 @app.get("/healthz")
 def healthz() -> Dict[str, str]:
     """
@@ -541,11 +528,47 @@ def clear_result(match_id: int, repo: Repo) -> MatchOut:
     return _match_out(services.clear_result(repo, match_id))
 
 
-# The UI's JavaScript and CSS (index.html refers to /assets/...). Mounted
-# last so it can't shadow an API route; check_dir=False lets the app start
-# when the UI hasn't been built.
-app.mount(
-    "/assets",
-    StaticFiles(directory=UI_DIR / "assets", check_dir=False),
-    name="assets",
+# --------------------------
+# UI
+# --------------------------
+
+# index.html must be re-checked on every visit so a redeploy is picked up;
+# the files under assets/ have a content hash in their names, so a browser
+# can keep them forever.
+NO_CACHE = {"Cache-Control": "no-cache"}
+CACHE_FOREVER = {"Cache-Control": "public, max-age=31536000, immutable"}
+
+
+# Registered last, so every API route above takes priority over it.
+@app.api_route(
+    "/{path:path}", methods=["GET", "HEAD"], include_in_schema=False
 )
+def ui(path: str) -> Response:
+    """
+    Serves the built UI: index.html at /, and any other file in UI_DIR
+    (JavaScript, CSS, icons) at its own path. Without a built UI, / sends
+    visitors to the interactive docs instead.
+
+    :param path:
+        The requested path, relative to UI_DIR.
+
+    :raises:
+        HTTPException: If there is no such file (404).
+    """
+    ui_dir = UI_DIR.resolve()
+    index = ui_dir / "index.html"
+    if not path and not index.is_file():
+        return RedirectResponse(url="/docs")
+    file = (ui_dir / path).resolve()
+    if file.is_dir():
+        file = file / "index.html"
+    # is_relative_to stops paths like /../src/api.py escaping UI_DIR.
+    if not file.is_file() or not file.is_relative_to(ui_dir):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
+    if file == index:
+        headers = NO_CACHE
+    elif file.is_relative_to(ui_dir / "assets"):
+        headers = CACHE_FOREVER
+    else:
+        headers = {}
+    return FileResponse(file, headers=headers)

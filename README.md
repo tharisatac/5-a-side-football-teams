@@ -31,8 +31,10 @@ together, the same way it runs in the cloud:
 docker compose --profile app up --build    # database + app
 ```
 
-Open http://localhost:8080. Stop with Ctrl+C (or `docker compose --profile app
-down`). No Python or Node needed on your machine for this, just Docker.
+Open http://localhost:8080. Stop with Ctrl+C, then
+`docker compose --profile app down` to remove the containers (plain
+`docker compose down` leaves the app container behind). No Python or Node
+needed on your machine for this, just Docker.
 
 ## Usage
 Data is stored in Postgres. By default the CLI and API use the local

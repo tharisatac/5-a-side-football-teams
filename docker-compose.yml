@@ -1,6 +1,7 @@
 # Local services.
-#   docker compose up -d                 just Postgres, for development/tests
-#   docker compose up --build app        the whole app in Docker, port 8080
+#   docker compose up -d                       just Postgres, for dev/tests
+#   docker compose --profile app up --build    the whole app, port 8080
+#   docker compose --profile app down          stop both
 # The app connects with DATABASE_URL; tests use a separate "football_test"
 # database on the same server, created automatically.
 services:
@@ -22,8 +23,8 @@ services:
 
   app:
     build: .
-    # Only started when asked for by name (docker compose up app), so plain
-    # `docker compose up -d` still starts just the database.
+    # Only started with --profile app, so plain `docker compose up -d`
+    # still starts just the database.
     profiles: ["app"]
     environment:
       # Inside Docker the database is reached by its service name, "db".
@@ -33,6 +34,14 @@ services:
     depends_on:
       db:
         condition: service_healthy
+    # Lets `docker compose ps` show when the app is ready. The image has no
+    # curl, so Python makes the request. (Cloud Run ignores this and runs
+    # its own checks.)
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/healthz')"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
 
 volumes:
   pgdata:

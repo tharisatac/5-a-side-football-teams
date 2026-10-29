@@ -3,6 +3,7 @@ import json
 from typing import Iterator
 
 import pytest
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 from src import api, services
@@ -52,31 +53,6 @@ def _create_match(client: TestClient) -> dict:
 # -------------------------------------------------------------------
 # Health
 # -------------------------------------------------------------------
-
-
-def test_root_serves_the_built_ui(client, tmp_path, monkeypatch):
-    """
-    Tests that / serves the UI's index.html when the UI has been built.
-    """
-    (tmp_path / "index.html").write_text("<h1>5-a-side</h1>")
-    monkeypatch.setattr(api, "UI_DIR", tmp_path)
-
-    response = client.get("/")
-
-    assert response.status_code == 200
-    assert "5-a-side" in response.text
-
-
-def test_root_redirects_to_docs(client, tmp_path, monkeypatch):
-    """
-    Tests that without a built UI the root URL isn't a dead end.
-    """
-    monkeypatch.setattr(api, "UI_DIR", tmp_path)
-
-    response = client.get("/", follow_redirects=False)
-
-    assert response.status_code == 307
-    assert response.headers["location"] == "/docs"
 
 
 def test_healthz(client):
@@ -498,3 +474,119 @@ def test_reset_forms(client, squad):
 
     assert response.status_code == 200
     assert {p["form"] for p in response.json()} == {5}
+
+
+# -------------------------------------------------------------------
+# UI
+# -------------------------------------------------------------------
+
+
+@pytest.fixture
+def built_ui(tmp_path, monkeypatch):
+    """
+    A fake built UI: index.html, a hashed asset and a top-level icon.
+    """
+    (tmp_path / "index.html").write_text("<h1>5-a-side</h1>")
+    (tmp_path / "assets").mkdir()
+    (tmp_path / "assets" / "index-abc123.js").write_text("console.log(1)")
+    (tmp_path / "favicon.svg").write_text("<svg/>")
+    (tmp_path.parent / "secret.txt").write_text("secret")
+    monkeypatch.setattr(api, "UI_DIR", tmp_path)
+    return tmp_path
+
+
+def test_root_serves_the_built_ui(client, built_ui):
+    """
+    Tests that / serves index.html, marked so browsers always re-check it
+    (otherwise an old index.html could point at assets a redeploy removed).
+    """
+    response = client.get("/")
+
+    assert response.status_code == 200
+    assert "5-a-side" in response.text
+    assert response.headers["cache-control"] == "no-cache"
+
+
+def test_assets_are_served_and_cached(client, built_ui):
+    """
+    Tests that hashed assets are served and may be cached forever.
+    """
+    response = client.get("/assets/index-abc123.js")
+
+    assert response.status_code == 200
+    assert response.text == "console.log(1)"
+    assert "immutable" in response.headers["cache-control"]
+
+
+def test_other_ui_files_are_served(client, built_ui):
+    """
+    Tests that files at the top of the built UI (icons etc.) are served.
+    """
+    response = client.get("/favicon.svg")
+
+    assert response.status_code == 200
+    assert response.text == "<svg/>"
+
+
+def test_unknown_ui_file_is_not_found(client, built_ui):
+    """
+    Tests that a missing file is a 404, not an error.
+    """
+    assert client.get("/assets/missing.js").status_code == 404
+
+
+def test_ui_cannot_serve_files_outside_its_folder(built_ui):
+    """
+    Tests that a path climbing out of UI_DIR is refused. Called directly
+    because HTTP clients tidy up ".." before sending a request.
+    """
+    with pytest.raises(HTTPException) as error:
+        api.ui("../secret.txt")
+
+    assert error.value.status_code == 404
+
+
+def test_api_routes_take_priority_over_the_ui(client, built_ui):
+    """
+    Tests that the UI's catch-all route doesn't hide the API.
+    """
+    response = client.get("/players")
+
+    assert response.status_code == 200
+    assert response.json() == []
+
+
+def test_root_redirects_to_docs_without_a_built_ui(
+    client, tmp_path, monkeypatch
+):
+    """
+    Tests that without a built UI the root URL isn't a dead end.
+    """
+    monkeypatch.setattr(api, "UI_DIR", tmp_path)
+
+    response = client.get("/", follow_redirects=False)
+
+    assert response.status_code == 307
+    assert response.headers["location"] == "/docs"
+
+
+def test_assets_without_a_built_ui_are_not_found(
+    client, tmp_path, monkeypatch
+):
+    """
+    Tests that asking for an asset before the UI is built is a 404, not a
+    server error.
+    """
+    monkeypatch.setattr(api, "UI_DIR", tmp_path / "missing")
+
+    assert client.get("/assets/index.js").status_code == 404
+
+
+def test_ui_answers_head_requests(client, built_ui):
+    """
+    Tests that HEAD (headers only, used by tools and some caches) works.
+    """
+    response = client.head("/")
+
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "no-cache"

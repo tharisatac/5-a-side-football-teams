@@ -1,7 +1,7 @@
 # Builds one image that serves the web API and the React UI.
 #
-#   docker compose up --build            # with the local Postgres
-#   docker build -t football .           # just the image
+#   docker compose --profile app up --build   # with the local Postgres
+#   docker build -t football .                # just the image
 #
 # Two stages: Node builds the UI, then only the built files are copied into
 # a slim Python image, so Node and the dev tools never reach the final image.
@@ -34,7 +34,8 @@ COPY --from=ui /web/dist web/dist
 
 # Don't run as root: if the app were ever compromised, the attacker would
 # only have this unprivileged user's permissions.
-RUN useradd --create-home app
+# A system user with no home directory: the app never needs one.
+RUN useradd --system --no-create-home app
 USER app
 
 # Cloud Run tells the container which port to listen on via $PORT.
