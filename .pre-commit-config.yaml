@@ -1,14 +1,14 @@
 repos:
   # Black configuration
   - repo: https://github.com/psf/black
-    rev: 25.9.0  # Keep in sync with requirements.txt
+    rev: 25.9.0  # Keep in sync with requirements-dev.txt
     hooks:
       - id: black
         language_version: python3  # Optional: specify Python version
 
   # Mypy configuration
   - repo: https://github.com/pre-commit/mirrors-mypy
-    rev: v1.18.2  # Keep in sync with requirements.txt
+    rev: v1.18.2  # Keep in sync with requirements-dev.txt
     hooks:
       - id: mypy
         language_version: python3  # Optional: specify Python version

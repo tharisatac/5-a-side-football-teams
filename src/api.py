@@ -9,10 +9,11 @@ http://127.0.0.1:8000/docs for interactive documentation.
 import os
 from datetime import datetime
 from functools import lru_cache
+from pathlib import Path
 from typing import Annotated, Dict, List, Optional
 
-from fastapi import Depends, FastAPI, Request, status
-from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi import Depends, FastAPI, HTTPException, Request, Response, status
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 from . import services
@@ -68,6 +69,15 @@ async def _error_response(request: Request, exc: Exception) -> JSONResponse:
         status_code=ERROR_STATUS[error_type], content={"detail": str(exc)}
     )
 
+
+# The built React UI (`npm run build` in web/). The Docker image serves it
+# from here; in development Vite serves it instead and this folder may not
+# exist.
+UI_DIR = Path(
+    os.getenv(
+        "UI_DIR", Path(__file__).resolve().parent.parent / "web" / "dist"
+    )
+)
 
 app = FastAPI(title="Football Team Decider")
 for error_type in ERROR_STATUS:
@@ -265,14 +275,6 @@ def _match_out(match: Match) -> MatchOut:
 # --------------------------
 # Health
 # --------------------------
-
-
-@app.get("/", include_in_schema=False)
-def root() -> RedirectResponse:
-    """
-    Sends visitors to the interactive docs, until there is a UI to show.
-    """
-    return RedirectResponse(url="/docs")
 
 
 @app.get("/healthz")
@@ -524,3 +526,49 @@ def clear_result(match_id: int, repo: Repo) -> MatchOut:
         MatchNotFoundError: If the match does not exist (404).
     """
     return _match_out(services.clear_result(repo, match_id))
+
+
+# --------------------------
+# UI
+# --------------------------
+
+# index.html must be re-checked on every visit so a redeploy is picked up;
+# the files under assets/ have a content hash in their names, so a browser
+# can keep them forever.
+NO_CACHE = {"Cache-Control": "no-cache"}
+CACHE_FOREVER = {"Cache-Control": "public, max-age=31536000, immutable"}
+
+
+# Registered last, so every API route above takes priority over it.
+@app.api_route(
+    "/{path:path}", methods=["GET", "HEAD"], include_in_schema=False
+)
+def ui(path: str) -> Response:
+    """
+    Serves the built UI: index.html at /, and any other file in UI_DIR
+    (JavaScript, CSS, icons) at its own path. Without a built UI, / sends
+    visitors to the interactive docs instead.
+
+    :param path:
+        The requested path, relative to UI_DIR.
+
+    :raises:
+        HTTPException: If there is no such file (404).
+    """
+    ui_dir = UI_DIR.resolve()
+    index = ui_dir / "index.html"
+    if not path and not index.is_file():
+        return RedirectResponse(url="/docs")
+    file = (ui_dir / path).resolve()
+    if file.is_dir():
+        file = file / "index.html"
+    # is_relative_to stops paths like /../src/api.py escaping UI_DIR.
+    if not file.is_file() or not file.is_relative_to(ui_dir):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
+    if file == index:
+        headers = NO_CACHE
+    elif file.is_relative_to(ui_dir / "assets"):
+        headers = CACHE_FOREVER
+    else:
+        headers = {}
+    return FileResponse(file, headers=headers)
