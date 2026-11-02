@@ -48,7 +48,7 @@ lately. The group needs:
 
 **Non-goals (deliberately)**
 - Per-user accounts and roles: a shared passcode is enough for one friend
-  group (*Planned*, see §6).
+  group (see §3.9).
 - Perfectly optimal teams: "good and explainable" beats "provably optimal and
   slow" (see §4.3.1).
 - Offline use, real-time push updates, multi-group tenancy.
@@ -132,6 +132,7 @@ stateDiagram-v2
 | Method and path | Purpose | Success |
 |---|---|---|
 | `GET /healthz` | Liveness check | 200 |
+| `GET /auth/check` | Is this passcode right? (changes nothing) | 204 |
 | `GET /players` / `POST /players` | List / create | 200 / 201 |
 | `GET` / `PATCH` / `DELETE /players/{name}` | Read / partial update / remove | 200 / 200 / 204 |
 | `POST /players/reset-forms` | Everyone's form back to 5 | 200 |
@@ -141,15 +142,20 @@ stateDiagram-v2
 | `PUT /matches/{id}/result` | Set or change the winner (idempotent) | 200 |
 | `DELETE /matches/{id}/result` | Clear the winner (idempotent) | 200 |
 
+Reading is public. Every request that changes data (and `/auth/check`)
+needs the shared passcode as an `Authorization: Bearer <passcode>` header.
+
 Errors are `{"detail": "<message>"}` with a status code that says whose
 fault it was:
 
 | Status | Meaning | Examples |
 |---|---|---|
+| 401 | Missing or wrong passcode | Any change without the right passcode |
 | 404 | It doesn't exist | Unknown player or match |
 | 409 | Conflicts with current state | Duplicate name, removing a player with matches, swapping in a played match |
 | 422 | The input is invalid | Score 11, bad name, fewer than 2 players, same player twice |
 | 500 | A bug | Anything unexpected. Deliberately not disguised as 422 |
+| 503 | Changes are turned off | The server has no passcode configured |
 
 **CLI** (`./run ...`): the same operations for a terminal, e.g.
 `./run teams create Alice Bob Cara Dan`, `./run teams result team1`.
@@ -162,7 +168,7 @@ fault it was:
 | Reliability | Every multi-step change is one database transaction: all or nothing |
 | Performance | Balancing up to ~20 players runs in well under a second |
 | Portability | One container image runs identically on a laptop and on Cloud Run |
-| Security | Container runs as a non-root user. No secrets in the image or repo. Only the API and UI files are served, never source files. Writes need a passcode (*Planned*) |
+| Security | Container runs as a non-root user. No secrets in the image or repo. Only the API and UI files are served, never source files. Changes need the shared passcode (§3.9) |
 | Operability | `/healthz` for platform health checks. Logs go to stdout |
 | Maintainability | Typed Python (mypy), formatted (black, isort), 170+ automated tests |
 
@@ -386,6 +392,8 @@ misreported as "your input was invalid".
   Layout is phone-first.
 - **Serving:** in development, Vite serves the UI and proxies API calls to
   uvicorn. In production, FastAPI serves the built files itself (see §3.8).
+- **Passcode:** a 🔒 View only / 🔓 Editing badge in the header. A change
+  refused with 401 opens a passcode dialog and is then retried (see §3.9).
 
 ### 3.8 Packaging and runtime
 
@@ -422,6 +430,51 @@ flowchart LR
   - `docker compose --profile app up --build` starts the whole system on
     :8080.
 
+### 3.9 Access control (shared passcode)
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant U as Organiser
+    participant B as Browser (React)
+    participant A as API
+    U->>B: Add player "Zed"
+    B->>A: POST /players (no passcode)
+    A-->>B: 401 Wrong or missing passcode
+    B->>U: Passcode dialog
+    U->>B: Types passcode
+    B->>A: GET /auth/check (Bearer passcode)
+    alt right
+        A-->>B: 204
+        Note over B: Remembered on this device (localStorage)
+        B->>A: POST /players (Bearer passcode), retried automatically
+        A-->>B: 201 Created
+    else wrong
+        A-->>B: 401
+        B->>U: "That passcode isn't right."
+    end
+```
+
+- **Who needs it:** reading is public. Every route that changes data
+  depends on `require_passcode` (a FastAPI dependency).
+- **Secure by default:** a test walks every route and fails if any non-GET
+  route lacks the check, so a new route can't be added unprotected by
+  mistake.
+- **Where the passcode lives:** in the `PASSCODE` environment variable. On
+  Cloud Run, Secret Manager supplies it; locally, docker compose does
+  (`football`). It's never in code or the image.
+- **Fails closed:** if `PASSCODE` isn't set, changes return 503 rather than
+  being open to everyone.
+- **Constant-time comparison:** `secrets.compare_digest` takes as long for
+  a nearly-right guess as a wrong one, so response times can't leak the
+  passcode a character at a time (a timing attack).
+- **Standard header:** `Authorization: Bearer`, so browsers, proxies and
+  logging tools treat it as a credential. `/docs` gets an "Authorize"
+  button.
+- **The CLI doesn't ask for it:** it connects to the database directly, so
+  whoever can run it already has full access. A passcode would protect
+  nothing.
+
 ---
 
 ## 4. Key decisions and trade-offs
@@ -450,7 +503,7 @@ reasoning, grouped by theme.
 | **Deployment, operations and security** | | | |
 | [4.5.1](#451-one-container-serving-ui-and-api) | One container for UI and API | CDN for UI, or nginx | No CDN edge caching |
 | [4.5.2](#452-a-new-database-connection-per-operation-no-pool-yet) | New connection per operation | Connection pool | ms of setup per request (pool planned) |
-| [4.5.3](#453-shared-passcode-not-user-accounts-planned) | Shared passcode for writes | Per-user login | No per-person audit trail |
+| [4.5.3](#453-shared-passcode-not-user-accounts) | Shared passcode for changes | Per-user login | No audit trail; no limit on guesses yet |
 
 ### 4.1 Architecture
 How the code is split up, and how much abstraction to pay for.
@@ -628,18 +681,32 @@ How it's packaged, connected and protected in the cloud.
 - **Cost:** a few milliseconds of connection setup per request. Cloud SQL
   limits connections, so a pool is *Planned* before real traffic.
 
-#### 4.5.3 Shared passcode, not user accounts (*Planned*)
+#### 4.5.3 Shared passcode, not user accounts
 
 - **Chosen:**
   - Reads are public.
-  - Writes require one shared passcode, stored in Google Secret Manager.
-- **Alternative:** OAuth or per-user login.
+  - Changes require one shared passcode, kept in an environment variable
+    (from Google Secret Manager in the cloud). Details in §3.9.
+  - The UI remembers it per device in `localStorage`.
+- **Alternatives:**
+  - OAuth or per-user login.
+  - Making everything private behind the passcode.
+  - Keeping the passcode only in memory, so it's asked for after every
+    reload.
 - **Why:** it matches the trust model of one friend group, adds no sign-up
-  friction, and keeps the secret out of code and images.
+  friction, and keeps the secret out of code and images. Public viewing
+  means players can check teams without being told the passcode.
 - **Cost:**
   - There's no per-person audit trail.
   - Rotating the passcode means telling everyone.
   - Anyone with the passcode can do anything.
+  - **No limit on guesses yet.** The defence today is a long passcode
+    (e.g. three random words). A real limit needs shared storage, because
+    Cloud Run may run several instances, each with its own memory.
+  - **`localStorage` can be read by any script on the page.** Acceptable
+    because the app loads no third-party scripts. An HttpOnly cookie
+    would hide it from scripts, but needs CSRF protection (stopping other
+    sites from making the browser send requests with that cookie).
 
 ---
 
@@ -667,7 +734,8 @@ container (*Planned*).
 
 | Item | Status | Notes |
 |---|---|---|
-| Shared passcode for writes | Planned | Secret Manager. Reads stay public (§4.5.3) |
+| Shared passcode for changes | Done | Reads stay public (§3.9, §4.5.3). Secret Manager wiring comes with the deploy |
+| Limit passcode guesses | Later | Needs shared storage across instances (§4.5.3) |
 | Connection pooling | Planned | `psycopg_pool`, before Cloud SQL (§4.5.2) |
 | Deploy to Cloud Run + Cloud SQL | Planned | Via the Cloud SQL connector. Scales to zero |
 | Terraform for all infrastructure | Planned | Reproducible, reviewable infrastructure changes |
@@ -687,6 +755,7 @@ container (*Planned*).
 | **Cloud Run** | Google's service that runs a container on demand and scales it, to zero when idle |
 | **Cloud SQL** | Google's managed Postgres |
 | **Container / image** | An image is a packaged filesystem with the app and everything it needs. A container is a running instance of it |
+| **Bearer header** | `Authorization: Bearer <secret>`: the standard way to send a credential with an HTTP request |
 | **CORS** | A browser rule restricting pages from calling servers on a different origin (domain/port). Avoided by serving UI and API together |
 | **Dependency injection** | Passing a component (here, the repository) in from outside rather than creating or importing it inside, so it can be swapped, e.g. in tests |
 | **Form** | A 0 to 10 measure of recent results. Scales a player's rating by ±25% |
@@ -697,5 +766,6 @@ container (*Planned*).
 | **Repository** | The class that hides storage details behind methods like `add_player` |
 | **Row lock (`FOR UPDATE`)** | Postgres holds other transactions back from changing a row until the current transaction ends |
 | **Snapshot** | A copy of data as it was at a moment, kept so later changes don't alter history |
+| **Timing attack** | Guessing a secret by measuring how long comparisons take. Prevented with constant-time comparison |
 | **Transaction** | A group of database changes that succeed or fail together |
 | **Workload Identity Federation** | Lets GitHub Actions prove its identity to Google Cloud with short-lived tokens instead of stored keys |
