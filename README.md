@@ -2,6 +2,10 @@
 A CLI for organising 5-a-side football: store players' skills, split a group
 into two balanced teams, and record results so each player's form adjusts.
 
+How it works, and why it's built this way (architecture diagrams, data
+model, concurrency, decisions and trade-offs):
+[docs/fs-ds.md](docs/fs-ds.md).
+
 ## Run it locally
 Requires Python 3.14, Docker and Node.js 20+.
 
