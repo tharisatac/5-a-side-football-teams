@@ -50,7 +50,7 @@ lately. The group needs:
 - Per-user accounts and roles: a shared passcode is enough for one friend
   group (*Planned*, see §6).
 - Perfectly optimal teams: "good and explainable" beats "provably optimal and
-  slow" (see §4.4).
+  slow" (see §4.3.1).
 - Offline use, real-time push updates, multi-group tenancy.
 
 ---
@@ -289,7 +289,7 @@ Design points:
   `CASCADE` (match deletion). If application code ever has a bug, the
   database still refuses bad data.
 - The schema lives in `schema.sql` and is applied on start with
-  `CREATE TABLE IF NOT EXISTS` (see §4.8 for the migration trade-off).
+  `CREATE TABLE IF NOT EXISTS` (see §4.2.4 for the migration trade-off).
 
 ### 3.4 Team balancing algorithm
 
@@ -426,9 +426,63 @@ flowchart LR
 
 ## 4. Key decisions and trade-offs
 
-Each entry gives the decision, the alternatives, why, and what it costs.
+Each decision says what was chosen, the alternatives, why, and what it
+costs. The table is the one-glance version; the sections below give the
+reasoning, grouped by theme.
 
-### 4.1 Postgres, not SQLite or Firestore
+| | Chose | Over | Main cost |
+|---|---|---|---|
+| **Architecture** | | | |
+| [4.1.1](#411-layered-architecture-with-a-pure-domain-core) | Layers with a pure domain core | Handlers querying the DB directly | More files and indirection |
+| [4.1.2](#412-no-repository-interface-yet) | One concrete repository class | An interface + fake for tests | Tests need Postgres running |
+| **Data and storage** | | | |
+| [4.2.1](#421-postgres-not-sqlite-or-firestore) | Postgres everywhere | SQLite, Firestore | Cloud SQL monthly cost; Docker for tests |
+| [4.2.2](#422-snapshotting-players-into-each-match) | Snapshot players into each match | Join to live player data | A little duplicated data |
+| [4.2.3](#423-exact-undo-via-a-stored-form_change) | Store each player's actual form change | Undo with the opposite ±1 | One extra column |
+| [4.2.4](#424-schema-applied-on-start-no-migration-tool) | `schema.sql` run on start | Alembic migrations | Non-additive changes need a tool later |
+| **Team balancing** | | | |
+| [4.3.1](#431-greedy-local-search-instead-of-an-optimal-partition) | Greedy swaps from a zigzag start | Brute force, integer programming | Not guaranteed optimal |
+| [4.3.2](#432-odd-team-12-bonus) | Fixed ×1.2 for the larger team | No adjustment | 1.2 is a tuned guess |
+| **Correctness and API design** | | | |
+| [4.4.1](#441-concurrency-row-locks-and-sql-arithmetic) | Row lock + arithmetic in SQL | Optimistic version column + retry | Locks wait (ms at this scale) |
+| [4.4.2](#442-put-for-results-idempotent-design) | `PUT` to set the result | `POST` action, idempotency keys | None significant |
+| [4.4.3](#443-names-as-api-identifiers) | Names in URLs | Numeric IDs | Renaming would change URLs |
+| **Deployment, operations and security** | | | |
+| [4.5.1](#451-one-container-serving-ui-and-api) | One container for UI and API | CDN for UI, or nginx | No CDN edge caching |
+| [4.5.2](#452-a-new-database-connection-per-operation-no-pool-yet) | New connection per operation | Connection pool | ms of setup per request (pool planned) |
+| [4.5.3](#453-shared-passcode-not-user-accounts-planned) | Shared passcode for writes | Per-user login | No per-person audit trail |
+
+### 4.1 Architecture
+How the code is split up, and how much abstraction to pay for.
+
+#### 4.1.1 Layered architecture with a pure domain core
+
+- **Chosen:** adapters → services → repository, with pure `teams`/`player`.
+- **Alternative:** route handlers that query the database directly (the
+  quickest way to write FastAPI).
+- **Why:**
+  - Two front ends (CLI and API) share every rule through `services`.
+  - The balancer is a pure function, which made property-based testing (§5)
+    possible.
+- **Cost:** more files and indirection than the app strictly needs.
+
+#### 4.1.2 No repository interface (yet)
+
+- **Chosen:** a concrete `PostgresRepository` class, no abstract base.
+- **Alternative:** a `Repository` Protocol with in-memory and Postgres
+  implementations.
+- **Why:** there's one real backend. An interface with one implementation is
+  speculative abstraction (YAGNI: "you aren't gonna need it"). Tests run
+  against a real Postgres, which catches SQL bugs a fake would hide.
+- **Cost:** tests need Postgres running. Introducing a second backend later
+  means extracting the interface then. That's cheap, because callers already
+  receive the repository by injection.
+
+### 4.2 Data and storage
+Where data lives, and how history and form stay correct.
+
+#### 4.2.1 Postgres, not SQLite or Firestore
+
 - **Chosen:** Postgres everywhere (local via Docker, Cloud SQL in prod).
 - **Alternatives:**
   - SQLite: the original. Zero setup, but a file on local disk.
@@ -447,28 +501,43 @@ Each entry gives the decision, the alternatives, why, and what it costs.
   - Overkill for one friend group. Accepted, because learning the
     production-shaped stack is part of the goal.
 
-### 4.2 Layered architecture with a pure domain core
-- **Chosen:** adapters → services → repository, with pure `teams`/`player`.
-- **Alternative:** route handlers that query the database directly (the
-  quickest way to write FastAPI).
-- **Why:**
-  - Two front ends (CLI and API) share every rule through `services`.
-  - The balancer is a pure function, which made property-based testing (§5)
-    possible.
-- **Cost:** more files and indirection than the app strictly needs.
+#### 4.2.2 Snapshotting players into each match
 
-### 4.3 No repository interface (yet)
-- **Chosen:** a concrete `PostgresRepository` class, no abstract base.
-- **Alternative:** a `Repository` Protocol with in-memory and Postgres
-  implementations.
-- **Why:** there's one real backend. An interface with one implementation is
-  speculative abstraction (YAGNI: "you aren't gonna need it"). Tests run
-  against a real Postgres, which catches SQL bugs a fake would hide.
-- **Cost:** tests need Postgres running. Introducing a second backend later
-  means extracting the interface then. That's cheap, because callers already
-  receive the repository by injection.
+- **Chosen:** copy skills and form into `match_players` at creation.
+- **Alternative:** store only player IDs and join to live data.
+- **Why:** history should show the teams *as they were balanced*. Editing
+  Alice's shooting today shouldn't change last month's match ratings.
+- **Cost:** duplicated data (a few integers per player per match), which is
+  negligible.
 
-### 4.4 Greedy local search instead of an optimal partition
+#### 4.2.3 Exact undo via a stored `form_change`
+
+- **Chosen:** store the change each player *actually* received, and subtract
+  it to undo.
+- **Alternative:** undo by applying the opposite (−1 for winners, +1 for
+  losers).
+- **Why:** form is clamped to 0 to 10. A winner already at 10 gets +0, and
+  blindly undoing with −1 would leave them at 9: wrong. Storing the real
+  delta makes record → change → clear always return everyone to where they
+  started.
+- **Cost:** one extra column, and the update logic is two SQL statements
+  instead of one.
+
+#### 4.2.4 Schema applied on start, no migration tool
+
+- **Chosen:** `schema.sql` with `IF NOT EXISTS`, run on start.
+- **Alternative:** Alembic (versioned migrations).
+- **Why:** the schema is small and, so far, only additive. A migration
+  framework is real complexity to learn and maintain.
+- **Cost:** a future change to an *existing* table (rename, new NOT NULL
+  column) needs a migration tool or a manual script. This is the first thing
+  to revisit once real data lives in Cloud SQL.
+
+### 4.3 Team balancing
+How fair is fair enough, and how to treat uneven numbers.
+
+#### 4.3.1 Greedy local search instead of an optimal partition
+
 - **Chosen:** zigzag seed, then best-single-swap hill climbing.
 - **Alternatives:**
   - Brute force over all splits: optimal, but C(n, n/2) grows explosively
@@ -482,7 +551,8 @@ Each entry gives the decision, the alternatives, why, and what it costs.
 - **Cost:** not guaranteed optimal. It can stop at a local minimum where
   only a two-for-two swap would help.
 
-### 4.5 Odd-team ×1.2 bonus
+#### 4.3.2 Odd-team ×1.2 bonus
+
 - **Chosen:** multiply the larger team's total by a fixed 1.2.
 - **Why:** an extra player is worth more than their individual rating (fresh
   legs, numerical advantage). Without the bonus, the balancer would give the
@@ -491,36 +561,11 @@ Each entry gives the decision, the alternatives, why, and what it costs.
   constant (`LARGE_TEAM_BOOST`), so it's easy to change or make
   configurable.
 
-### 4.6 Snapshotting players into each match
-- **Chosen:** copy skills and form into `match_players` at creation.
-- **Alternative:** store only player IDs and join to live data.
-- **Why:** history should show the teams *as they were balanced*. Editing
-  Alice's shooting today shouldn't change last month's match ratings.
-- **Cost:** duplicated data (a few integers per player per match), which is
-  negligible.
+### 4.4 Correctness and API design
+Staying right when requests are retried or arrive at the same time.
 
-### 4.7 Exact undo via a stored `form_change`
-- **Chosen:** store the change each player *actually* received, and subtract
-  it to undo.
-- **Alternative:** undo by applying the opposite (−1 for winners, +1 for
-  losers).
-- **Why:** form is clamped to 0 to 10. A winner already at 10 gets +0, and
-  blindly undoing with −1 would leave them at 9: wrong. Storing the real
-  delta makes record → change → clear always return everyone to where they
-  started.
-- **Cost:** one extra column, and the update logic is two SQL statements
-  instead of one.
+#### 4.4.1 Concurrency: row locks and SQL arithmetic
 
-### 4.8 Schema applied on start, no migration tool
-- **Chosen:** `schema.sql` with `IF NOT EXISTS`, run on start.
-- **Alternative:** Alembic (versioned migrations).
-- **Why:** the schema is small and, so far, only additive. A migration
-  framework is real complexity to learn and maintain.
-- **Cost:** a future change to an *existing* table (rename, new NOT NULL
-  column) needs a migration tool or a manual script. This is the first thing
-  to revisit once real data lives in Cloud SQL.
-
-### 4.9 Concurrency: row locks and SQL arithmetic
 - **Chosen:**
   - **Pessimistic locking:** lock the match row (`FOR UPDATE`).
   - **Atomic updates:** `form = form + x` computed by the database.
@@ -533,7 +578,8 @@ Each entry gives the decision, the alternatives, why, and what it costs.
   Transactions here are a few short statements, so this doesn't matter in
   practice.
 
-### 4.10 `PUT` for results (idempotent design)
+#### 4.4.2 `PUT` for results (idempotent design)
+
 - **Chosen:** `PUT /matches/{id}/result` (set the state) and
   `DELETE …/result` (clear it).
 - **Alternatives:**
@@ -546,7 +592,19 @@ Each entry gives the decision, the alternatives, why, and what it costs.
 - **Cost:** none significant. Idempotency keys would only be needed for
   operations that are inherently "do it again" (e.g. creating a match).
 
-### 4.11 One container serving UI and API
+#### 4.4.3 Names as API identifiers
+
+- **Chosen:** `/players/{name}` rather than `/players/{id}`.
+- **Why:** names are unique and human-readable, and the CLI already works
+  with names. `/` is banned in names, so every name is URL-safe.
+- **Cost:** renaming a player would change their URL. Renaming isn't
+  supported today. If added, switching to IDs in the API would be cleaner.
+
+### 4.5 Deployment, operations and security
+How it's packaged, connected and protected in the cloud.
+
+#### 4.5.1 One container serving UI and API
+
 - **Chosen:** FastAPI serves the built React files as well as the API.
 - **Alternatives:**
   - UI on a CDN or static bucket and the API on Cloud Run.
@@ -560,7 +618,8 @@ Each entry gives the decision, the alternatives, why, and what it costs.
   - There's no CDN edge caching (mitigated by long-lived cache headers on
     hashed assets).
 
-### 4.12 A new database connection per operation (no pool, yet)
+#### 4.5.2 A new database connection per operation (no pool, yet)
+
 - **Chosen:** each repository call opens a connection, runs one
   transaction, and closes it.
 - **Alternative:** a connection pool (`psycopg_pool`).
@@ -569,7 +628,8 @@ Each entry gives the decision, the alternatives, why, and what it costs.
 - **Cost:** a few milliseconds of connection setup per request. Cloud SQL
   limits connections, so a pool is *Planned* before real traffic.
 
-### 4.13 Shared passcode, not user accounts (*Planned*)
+#### 4.5.3 Shared passcode, not user accounts (*Planned*)
+
 - **Chosen:**
   - Reads are public.
   - Writes require one shared passcode, stored in Google Secret Manager.
@@ -580,13 +640,6 @@ Each entry gives the decision, the alternatives, why, and what it costs.
   - There's no per-person audit trail.
   - Rotating the passcode means telling everyone.
   - Anyone with the passcode can do anything.
-
-### 4.14 Names as API identifiers
-- **Chosen:** `/players/{name}` rather than `/players/{id}`.
-- **Why:** names are unique and human-readable, and the CLI already works
-  with names. `/` is banned in names, so every name is URL-safe.
-- **Cost:** renaming a player would change their URL. Renaming isn't
-  supported today. If added, switching to IDs in the API would be cleaner.
 
 ---
 
@@ -614,13 +667,13 @@ container (*Planned*).
 
 | Item | Status | Notes |
 |---|---|---|
-| Shared passcode for writes | Planned | Secret Manager. Reads stay public (§4.13) |
-| Connection pooling | Planned | `psycopg_pool`, before Cloud SQL (§4.12) |
+| Shared passcode for writes | Planned | Secret Manager. Reads stay public (§4.5.3) |
+| Connection pooling | Planned | `psycopg_pool`, before Cloud SQL (§4.5.2) |
 | Deploy to Cloud Run + Cloud SQL | Planned | Via the Cloud SQL connector. Scales to zero |
 | Terraform for all infrastructure | Planned | Reproducible, reviewable infrastructure changes |
 | GitHub Actions CI/CD | Planned | Tests with a Postgres service container. Deploys through Workload Identity Federation, so no long-lived cloud keys are stored in GitHub |
-| Schema migrations | Later | Alembic once a non-additive change is needed (§4.8) |
-| Player rename | Later | Would favour ID-based URLs (§4.14) |
+| Schema migrations | Later | Alembic once a non-additive change is needed (§4.2.4) |
+| Player rename | Later | Would favour ID-based URLs (§4.4.3) |
 | Balancer: two-for-two swaps | Later | Only if real matches show greedy stopping short |
 | Live updates across phones | Not planned | Re-fetch on action is enough for this group |
 
