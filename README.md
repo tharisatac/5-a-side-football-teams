@@ -12,12 +12,17 @@ cd web && npm install && cd ..        # UI packages into web/node_modules/
 
 # Every time
 docker compose up -d                  # 1. the database (Postgres, port 5432)
-venv/bin/uvicorn src.api:app --reload # 2. the API (port 8000), own terminal
+PASSCODE=football venv/bin/uvicorn src.api:app --reload  # 2. the API (port 8000), own terminal
 cd web && npm run dev                 # 3. the UI (port 5173), own terminal
 ```
 
 Open http://localhost:5173 for the app, or http://127.0.0.1:8000/docs to try
 the API directly. The CLI (`./run ...`, below) only needs step 1.
+
+Anyone can view; making changes needs the passcode (`football` above).
+The UI asks for it the first time you change something and remembers it
+on that device. In `/docs`, click "Authorize" and enter it. Without
+`PASSCODE` set, the API is read-only.
 
 To stop: Ctrl+C in the API and UI terminals, then `docker compose stop`. Your
 data is kept in a Docker volume; `docker compose down -v` deletes it for a
@@ -31,7 +36,8 @@ together, the same way it runs in the cloud:
 docker compose --profile app up --build    # database + app
 ```
 
-Open http://localhost:8080. Stop with Ctrl+C, then
+Open http://localhost:8080 (passcode `football`, or set `PASSCODE` before
+running). Stop with Ctrl+C, then
 `docker compose --profile app down` to remove the containers (plain
 `docker compose down` leaves the app container behind). No Python or Node
 needed on your machine for this, just Docker.
@@ -73,11 +79,16 @@ Run `./run --help` (or `./run teams --help`, etc.) for every command.
 
 ## Web API
 Interactive docs at http://127.0.0.1:8000/docs while the API is running. It
-uses the same database and rules as the CLI.
+uses the same database and rules as the CLI. Reading is public; every
+change needs the passcode as an `Authorization: Bearer <passcode>`
+header (401 if it's missing or wrong). The CLI doesn't ask for it: it
+talks to the database directly, so whoever can run it already has full
+access.
 
 | Endpoint | Does |
 |---|---|
 | `GET /healthz` | Health check |
+| `GET /auth/check` | Checks a passcode (204 if right) |
 | `GET/POST /players`, `GET/PATCH/DELETE /players/{name}` | Manage players |
 | `POST /players/reset-forms` | Reset everyone's form to 5 |
 | `GET/POST /matches`, `GET/DELETE /matches/{id}` | Pick teams, history, delete |

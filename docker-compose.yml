@@ -29,6 +29,10 @@ services:
     environment:
       # Inside Docker the database is reached by its service name, "db".
       DATABASE_URL: postgresql://football:football@db:5432/football
+      # The passcode for making changes. "football" unless you set
+      # PASSCODE in your shell. Fine locally; the real one lives in Secret
+      # Manager.
+      PASSCODE: ${PASSCODE:-football}
     ports:
       - "127.0.0.1:8080:8080"
     depends_on:

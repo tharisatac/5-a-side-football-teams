@@ -7,6 +7,7 @@ http://127.0.0.1:8000/docs for interactive documentation.
 """
 
 import os
+import secrets
 from datetime import datetime
 from functools import lru_cache
 from pathlib import Path
@@ -14,6 +15,7 @@ from typing import Annotated, Dict, List, Optional
 
 from fastapi import Depends, FastAPI, HTTPException, Request, Response, status
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, ConfigDict, Field
 
 from . import services
@@ -110,6 +112,53 @@ def get_repo() -> PostgresRepository:
 
 
 Repo = Annotated[PostgresRepository, Depends(get_repo)]
+
+# Reads the passcode from an `Authorization: Bearer <passcode>` header.
+# auto_error=False so a missing header reaches require_passcode, which gives
+# one consistent 401. Also adds the "Authorize" button to /docs.
+_bearer = HTTPBearer(
+    auto_error=False, description="The shared passcode for making changes."
+)
+
+
+def require_passcode(
+    credentials: Annotated[
+        Optional[HTTPAuthorizationCredentials], Depends(_bearer)
+    ],
+) -> None:
+    """
+    Lets a request through only if it carries the shared passcode, which the
+    server reads from the PASSCODE environment variable (from Secret Manager
+    on Cloud Run). Anyone can view; only routes that change data use this.
+
+    :param credentials:
+        The `Authorization: Bearer` header, if the request sent one.
+
+    :raises:
+        HTTPException: 503 if no passcode is configured, so a missing
+            setting turns changes off rather than leaving them open; 401 if
+            the passcode is missing or wrong.
+    """
+    expected = os.getenv("PASSCODE")
+    if not expected:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Changes are turned off: the server has no passcode set.",
+        )
+    # compare_digest takes as long for a nearly-right guess as for a wrong
+    # one, so response times don't reveal how much of a guess was right.
+    if credentials is None or not secrets.compare_digest(
+        credentials.credentials.encode(), expected.encode()
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Wrong or missing passcode.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+
+# Added to every route that changes data.
+NEEDS_PASSCODE = [Depends(require_passcode)]
 
 
 # --------------------------
@@ -286,6 +335,18 @@ def healthz() -> Dict[str, str]:
     return {"status": "ok"}
 
 
+@app.get(
+    "/auth/check",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=NEEDS_PASSCODE,
+)
+def check_passcode() -> None:
+    """
+    Succeeds (204) if the request carries the right passcode, so the UI can
+    check one before remembering it. Changes nothing.
+    """
+
+
 # --------------------------
 # Players
 # --------------------------
@@ -321,7 +382,11 @@ def get_player(name: str, repo: Repo) -> PlayerOut:
     return _player_out(player)
 
 
-@app.post("/players", status_code=status.HTTP_201_CREATED)
+@app.post(
+    "/players",
+    status_code=status.HTTP_201_CREATED,
+    dependencies=NEEDS_PASSCODE,
+)
 def add_player(body: PlayerCreate, repo: Repo) -> PlayerOut:
     """
     Adds a new player.
@@ -343,7 +408,7 @@ def add_player(body: PlayerCreate, repo: Repo) -> PlayerOut:
     return _player_out(player)
 
 
-@app.patch("/players/{name}")
+@app.patch("/players/{name}", dependencies=NEEDS_PASSCODE)
 def update_player(name: str, body: PlayerUpdate, repo: Repo) -> PlayerOut:
     """
     Changes some of a player's skills and/or form.
@@ -362,7 +427,7 @@ def update_player(name: str, body: PlayerUpdate, repo: Repo) -> PlayerOut:
     return _player_out(services.update_player(repo, name, changes))
 
 
-@app.post("/players/reset-forms")
+@app.post("/players/reset-forms", dependencies=NEEDS_PASSCODE)
 def reset_forms(repo: Repo) -> List[PlayerOut]:
     """
     Sets every player's form back to the default (5). Past matches keep
@@ -376,7 +441,11 @@ def reset_forms(repo: Repo) -> List[PlayerOut]:
     return [_player_out(p) for p in repo.list_players()]
 
 
-@app.delete("/players/{name}", status_code=status.HTTP_204_NO_CONTENT)
+@app.delete(
+    "/players/{name}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=NEEDS_PASSCODE,
+)
 def remove_player(name: str, repo: Repo) -> None:
     """
     Removes a player who has never played in a match.
@@ -409,7 +478,11 @@ def list_matches(repo: Repo) -> List[MatchOut]:
     return [_match_out(m) for m in repo.list_matches()]
 
 
-@app.post("/matches", status_code=status.HTTP_201_CREATED)
+@app.post(
+    "/matches",
+    status_code=status.HTTP_201_CREATED,
+    dependencies=NEEDS_PASSCODE,
+)
 def create_match(body: MatchCreate, repo: Repo) -> MatchOut:
     """
     Balances the named players into two teams and stores them as a match.
@@ -446,7 +519,11 @@ def get_match(match_id: int, repo: Repo) -> MatchOut:
     return _match_out(match)
 
 
-@app.delete("/matches/{match_id}", status_code=status.HTTP_204_NO_CONTENT)
+@app.delete(
+    "/matches/{match_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=NEEDS_PASSCODE,
+)
 def delete_match(match_id: int, repo: Repo) -> None:
     """
     Deletes a match. If it has a result, that result's form changes are
@@ -463,7 +540,7 @@ def delete_match(match_id: int, repo: Repo) -> None:
     services.delete_match(repo, match_id)
 
 
-@app.post("/matches/{match_id}/swap")
+@app.post("/matches/{match_id}/swap", dependencies=NEEDS_PASSCODE)
 def swap_players(match_id: int, body: SwapIn, repo: Repo) -> MatchOut:
     """
     Swaps two players between the teams of a match that hasn't been played.
@@ -490,7 +567,7 @@ def swap_players(match_id: int, body: SwapIn, repo: Repo) -> MatchOut:
 # --------------------------
 
 
-@app.put("/matches/{match_id}/result")
+@app.put("/matches/{match_id}/result", dependencies=NEEDS_PASSCODE)
 def record_result(match_id: int, body: ResultIn, repo: Repo) -> MatchOut:
     """
     Sets the winner and updates players' form, replacing any earlier result
@@ -511,7 +588,7 @@ def record_result(match_id: int, body: ResultIn, repo: Repo) -> MatchOut:
     return _match_out(services.record_result(repo, match_id, body.winner))
 
 
-@app.delete("/matches/{match_id}/result")
+@app.delete("/matches/{match_id}/result", dependencies=NEEDS_PASSCODE)
 def clear_result(match_id: int, repo: Repo) -> MatchOut:
     """
     Marks a match as not played, undoing its result's form changes.
