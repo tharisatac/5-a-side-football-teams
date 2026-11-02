@@ -155,6 +155,21 @@ button:disabled {
   font-size: 1.5rem;
 }
 
+/* Shows whether this device can make changes; tap to lock or unlock. */
+.lock-button {
+  margin-left: auto;
+  padding: 6px 12px;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--brand-text);
+  font-family: var(--body);
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-transform: none;
+  white-space: nowrap;
+}
+
 .tabs {
   display: flex;
   gap: 4px;
@@ -824,6 +839,12 @@ button.token:hover {
   background: var(--surface-2);
   color: var(--text);
   font: inherit;
+}
+
+.field-error {
+  margin: 0;
+  color: var(--danger);
+  font-weight: 600;
 }
 
 .slider {

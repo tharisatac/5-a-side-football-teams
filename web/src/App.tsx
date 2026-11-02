@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
 
-import { api, Match, Player } from "./api";
+import { api, ApiError, hasPasscode, Match, Player, setPasscode } from "./api";
 import History from "./components/History";
 import MatchDay from "./components/MatchDay";
+import PasscodeDialog from "./components/PasscodeDialog";
 import Squad from "./components/Squad";
 
 type Tab = "match" | "squad" | "history";
@@ -21,7 +22,8 @@ const TABS: { id: Tab; label: string }[] = [
 
 /**
  * Runs an API action, then reloads the data. Returns whether the action
- * succeeded; on failure the error is shown in a toast. A failed reload after
+ * succeeded; on failure the error is shown in a toast. If the action needs
+ * the passcode, asks for it and tries again. A failed reload after
  * a successful action still counts as success, so the user isn't tempted to
  * repeat it (e.g. creating a second match).
  */
@@ -37,6 +39,24 @@ export default function App() {
   const [matches, setMatches] = useState<Match[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [unlocked, setUnlocked] = useState(hasPasscode);
+  // While the passcode dialog is open: how to report back whether it was
+  // unlocked, to whoever opened it.
+  const [onPasscode, setOnPasscode] = useState<((unlocked: boolean) => void) | null>(null);
+
+  /** Opens the passcode dialog; resolves true once it's unlocked. */
+  const askForPasscode = useCallback(
+    () =>
+      new Promise<boolean>((resolve) => {
+        // A function in state must be wrapped, or React would call it.
+        setOnPasscode(() => (ok: boolean) => {
+          setOnPasscode(null);
+          setUnlocked(hasPasscode());
+          resolve(ok);
+        });
+      }),
+    [],
+  );
 
   const refresh = useCallback(async () => {
     const [newPlayers, newMatches] = await Promise.all([
@@ -49,11 +69,20 @@ export default function App() {
 
   const run: Run = useCallback(
     async (action) => {
-      try {
-        await action();
-      } catch (e) {
-        setError(message(e));
-        return false;
+      for (;;) {
+        try {
+          await action();
+          break;
+        } catch (e) {
+          if (!(e instanceof ApiError && e.status === 401)) {
+            setError(message(e));
+            return false;
+          }
+          // No passcode, or a remembered one that has since changed.
+          setPasscode(null);
+          setUnlocked(false);
+          if (!(await askForPasscode())) return false;
+        }
       }
       try {
         await refresh();
@@ -62,7 +91,7 @@ export default function App() {
       }
       return true;
     },
-    [refresh],
+    [refresh, askForPasscode],
   );
 
   useEffect(() => {
@@ -88,6 +117,17 @@ export default function App() {
           <span>
             5-a-side <em>team decider</em>
           </span>
+          <button
+            className="lock-button"
+            title={unlocked ? "Lock changes on this device" : "Enter the passcode to make changes"}
+            onClick={() => {
+              if (!unlocked) return void askForPasscode();
+              setPasscode(null);
+              setUnlocked(false);
+            }}
+          >
+            {unlocked ? "🔓 Editing" : "🔒 View only"}
+          </button>
         </div>
         <nav className="tabs" aria-label="Sections">
           {TABS.map(({ id, label }) => (
@@ -117,6 +157,8 @@ export default function App() {
           <History matches={matches} run={run} />
         )}
       </main>
+
+      {onPasscode && <PasscodeDialog onDone={onPasscode} />}
 
       {error && (
         <div className="toast" role="alert" onClick={() => setError(null)}>
