@@ -521,6 +521,77 @@ def test_anyone_can_view(anonymous, squad):
     assert anonymous.get("/matches").status_code == 200
 
 
+def test_viewers_see_names_but_no_numbers(anonymous, squad):
+    """
+    Tests that without the passcode, players come back without their
+    skills, form or rating.
+    """
+    players = anonymous.get("/players").json()
+    alice = anonymous.get("/players/Alice").json()
+
+    assert [p["name"] for p in players] == NAMES
+    for player in players + [alice]:
+        assert player["skills"] is None
+        assert player["form"] is None
+        assert player["rating"] is None
+
+
+def test_a_wrong_passcode_also_sees_no_numbers(anonymous, squad):
+    """
+    Tests that a wrong passcode is treated as a viewer, not an error.
+    """
+    response = anonymous.get(
+        "/players/Alice", headers={"Authorization": "Bearer wrong"}
+    )
+
+    assert response.status_code == 200
+    assert response.json()["rating"] is None
+
+
+def test_viewers_see_teams_without_ratings_in_name_order(
+    client, anonymous, squad
+):
+    """
+    Tests that viewers see who is on each team, sorted by name (the
+    balancer's order would hint at ratings), and no ratings.
+    """
+    names = NAMES + ["Eve", "Finn"]
+    for name in names[len(NAMES) :]:
+        client.post("/players", json={"name": name, "skills": SKILLS})
+    # Ratings chosen so the balancer's order isn't alphabetical.
+    for name, score in zip(names, (1, 10, 2, 9, 3, 8)):
+        client.patch(f"/players/{name}", json={"shooting": score})
+    created = client.post("/matches", json={"players": names}).json()
+    match_id = created["id"]
+    balanced = [
+        [p["name"] for p in created[key]["players"]]
+        for key in ("team1", "team2")
+    ]
+    assert balanced != [sorted(team) for team in balanced]
+
+    for match in (
+        anonymous.get(f"/matches/{match_id}").json(),
+        anonymous.get("/matches").json()[0],
+    ):
+        for key in ("team1", "team2"):
+            team = match[key]
+            names = [p["name"] for p in team["players"]]
+            assert names == sorted(names)
+            assert team["rating"] is None
+            assert all(p["rating"] is None for p in team["players"])
+
+
+def test_passcode_holders_see_the_numbers(client, squad):
+    """
+    Tests that with the passcode, the numbers are included.
+    """
+    alice = client.get("/players/Alice").json()
+
+    assert alice["skills"] == SKILLS
+    assert alice["form"] == 5
+    assert alice["rating"] == 7
+
+
 def test_change_without_passcode_is_refused(anonymous):
     """
     Tests that a change with no passcode is refused, tells the browser how
