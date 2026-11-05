@@ -7,6 +7,7 @@ http://127.0.0.1:8000/docs for interactive documentation.
 """
 
 import os
+import secrets
 from datetime import datetime
 from functools import lru_cache
 from pathlib import Path
@@ -14,6 +15,7 @@ from typing import Annotated, Dict, List, Optional
 
 from fastapi import Depends, FastAPI, HTTPException, Request, Response, status
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, ConfigDict, Field
 
 from . import services
@@ -111,6 +113,85 @@ def get_repo() -> PostgresRepository:
 
 Repo = Annotated[PostgresRepository, Depends(get_repo)]
 
+# Reads the passcode from an `Authorization: Bearer <passcode>` header.
+# auto_error=False so a missing header reaches require_passcode, which gives
+# one consistent 401. Also adds the "Authorize" button to /docs.
+_bearer = HTTPBearer(
+    auto_error=False,
+    description="The shared passcode. Needed to make changes, and to see "
+    "ratings, skills and form.",
+)
+Credentials = Annotated[
+    Optional[HTTPAuthorizationCredentials], Depends(_bearer)
+]
+
+
+def _passcode_matches(
+    credentials: Optional[HTTPAuthorizationCredentials],
+) -> bool:
+    """
+    Whether the request carries the passcode set in the PASSCODE environment
+    variable. Always False if no passcode is set.
+
+    :param credentials:
+        The `Authorization: Bearer` header, if the request sent one.
+    """
+    expected = os.getenv("PASSCODE")
+    if not expected or credentials is None:
+        return False
+    # compare_digest takes as long for a nearly-right guess as for a wrong
+    # one, so response times don't reveal how much of a guess was right.
+    return secrets.compare_digest(
+        credentials.credentials.encode(), expected.encode()
+    )
+
+
+def require_passcode(credentials: Credentials) -> None:
+    """
+    Lets a request through only if it carries the shared passcode, which the
+    server reads from the PASSCODE environment variable (from Secret Manager
+    on Cloud Run). Every route that changes data uses this.
+
+    :param credentials:
+        The `Authorization: Bearer` header, if the request sent one.
+
+    :raises:
+        HTTPException: 503 if no passcode is configured, so a missing
+            setting turns changes off rather than leaving them open; 401 if
+            the passcode is missing or wrong.
+    """
+    if not os.getenv("PASSCODE"):
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Changes are turned off: the server has no passcode set.",
+        )
+    if not _passcode_matches(credentials):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Wrong or missing passcode.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+
+# Added to every route that changes data.
+NEEDS_PASSCODE = [Depends(require_passcode)]
+
+
+def can_see_ratings(credentials: Credentials) -> bool:
+    """
+    Whether the response may include ratings, skills and form. Viewing is
+    public, but only people with the passcode see the numbers, so nobody is
+    upset by their rating. A wrong passcode isn't an error here: the
+    request is simply treated as a viewer's.
+
+    :param credentials:
+        The `Authorization: Bearer` header, if the request sent one.
+    """
+    return _passcode_matches(credentials)
+
+
+ShowRatings = Annotated[bool, Depends(can_see_ratings)]
+
 
 # --------------------------
 # Request and response models
@@ -163,15 +244,19 @@ class PlayerUpdate(BaseModel):
     form: Optional[Form] = None
 
 
+# Description for the fields only sent with the passcode.
+WITH_PASSCODE = "null unless the request carries the passcode."
+
+
 class PlayerOut(BaseModel):
     """
-    A player as returned by the API.
+    A player as returned by the API. Without the passcode, only the name.
     """
 
     name: str
-    skills: Dict[str, int]
-    form: int
-    rating: float
+    skills: Optional[Dict[str, int]] = Field(description=WITH_PASSCODE)
+    form: Optional[int] = Field(description=WITH_PASSCODE)
+    rating: Optional[float] = Field(description=WITH_PASSCODE)
 
 
 class TeamOut(BaseModel):
@@ -181,7 +266,7 @@ class TeamOut(BaseModel):
 
     players: List[PlayerOut]
     bonus: float
-    rating: float
+    rating: Optional[float] = Field(description=WITH_PASSCODE)
 
 
 class MatchCreate(BaseModel):
@@ -227,13 +312,17 @@ class ResultIn(BaseModel):
     winner: TeamKey
 
 
-def _player_out(player: Player) -> PlayerOut:
+def _player_out(player: Player, show: bool = True) -> PlayerOut:
     """
     Converts a Player for the response.
 
     :param player:
         The player.
+    :param show:
+        Whether to include their skills, form and rating.
     """
+    if not show:
+        return PlayerOut(name=player.name, skills=None, form=None, rating=None)
     return PlayerOut(
         name=player.name,
         skills=player.attributes.to_values(),
@@ -242,32 +331,42 @@ def _player_out(player: Player) -> PlayerOut:
     )
 
 
-def _team_out(team: Team) -> TeamOut:
+def _team_out(team: Team, show: bool = True) -> TeamOut:
     """
     Converts a Team for the response.
 
     :param team:
         The team.
+    :param show:
+        Whether to include ratings, skills and form. If not, players are
+        sorted by name, because the balancer's order hints at their ratings.
     """
+    players = team.players if show else sorted(team.players, key=_by_name)
     return TeamOut(
-        players=[_player_out(p) for p in team.players],
+        players=[_player_out(p, show) for p in players],
         bonus=team.bonus,
-        rating=team.get_overall_rating(),
+        rating=team.get_overall_rating() if show else None,
     )
 
 
-def _match_out(match: Match) -> MatchOut:
+def _by_name(player: Player) -> str:
+    return player.name.casefold()
+
+
+def _match_out(match: Match, show: bool = True) -> MatchOut:
     """
     Converts a Match for the response.
 
     :param match:
         The match.
+    :param show:
+        Whether to include ratings, skills and form.
     """
     return MatchOut(
         id=match.id,
         created_at=match.created_at,
-        team1=_team_out(match.team1),
-        team2=_team_out(match.team2),
+        team1=_team_out(match.team1, show),
+        team2=_team_out(match.team2, show),
         winner=match.winner,
     )
 
@@ -286,24 +385,38 @@ def healthz() -> Dict[str, str]:
     return {"status": "ok"}
 
 
+@app.get(
+    "/auth/check",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=NEEDS_PASSCODE,
+)
+def check_passcode() -> None:
+    """
+    Succeeds (204) if the request carries the right passcode, so the UI can
+    check one before remembering it. Changes nothing.
+    """
+
+
 # --------------------------
 # Players
 # --------------------------
 
 
 @app.get("/players")
-def list_players(repo: Repo) -> List[PlayerOut]:
+def list_players(repo: Repo, show: ShowRatings) -> List[PlayerOut]:
     """
     Lists all players in the order they were added.
 
     :param repo:
         Where players are stored.
+    :param show:
+        Whether the request may see ratings, skills and form.
     """
-    return [_player_out(p) for p in repo.list_players()]
+    return [_player_out(p, show) for p in repo.list_players()]
 
 
 @app.get("/players/{name}")
-def get_player(name: str, repo: Repo) -> PlayerOut:
+def get_player(name: str, repo: Repo, show: ShowRatings) -> PlayerOut:
     """
     Returns one player.
 
@@ -311,6 +424,8 @@ def get_player(name: str, repo: Repo) -> PlayerOut:
         The player's name.
     :param repo:
         Where players are stored.
+    :param show:
+        Whether the request may see ratings, skills and form.
 
     :raises:
         PlayerNotFoundError: If the player does not exist (404).
@@ -318,10 +433,14 @@ def get_player(name: str, repo: Repo) -> PlayerOut:
     player = repo.get_player(name)
     if player is None:
         raise PlayerNotFoundError(name)
-    return _player_out(player)
+    return _player_out(player, show)
 
 
-@app.post("/players", status_code=status.HTTP_201_CREATED)
+@app.post(
+    "/players",
+    status_code=status.HTTP_201_CREATED,
+    dependencies=NEEDS_PASSCODE,
+)
 def add_player(body: PlayerCreate, repo: Repo) -> PlayerOut:
     """
     Adds a new player.
@@ -343,7 +462,7 @@ def add_player(body: PlayerCreate, repo: Repo) -> PlayerOut:
     return _player_out(player)
 
 
-@app.patch("/players/{name}")
+@app.patch("/players/{name}", dependencies=NEEDS_PASSCODE)
 def update_player(name: str, body: PlayerUpdate, repo: Repo) -> PlayerOut:
     """
     Changes some of a player's skills and/or form.
@@ -362,7 +481,7 @@ def update_player(name: str, body: PlayerUpdate, repo: Repo) -> PlayerOut:
     return _player_out(services.update_player(repo, name, changes))
 
 
-@app.post("/players/reset-forms")
+@app.post("/players/reset-forms", dependencies=NEEDS_PASSCODE)
 def reset_forms(repo: Repo) -> List[PlayerOut]:
     """
     Sets every player's form back to the default (5). Past matches keep
@@ -376,7 +495,11 @@ def reset_forms(repo: Repo) -> List[PlayerOut]:
     return [_player_out(p) for p in repo.list_players()]
 
 
-@app.delete("/players/{name}", status_code=status.HTTP_204_NO_CONTENT)
+@app.delete(
+    "/players/{name}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=NEEDS_PASSCODE,
+)
 def remove_player(name: str, repo: Repo) -> None:
     """
     Removes a player who has never played in a match.
@@ -399,17 +522,23 @@ def remove_player(name: str, repo: Repo) -> None:
 
 
 @app.get("/matches")
-def list_matches(repo: Repo) -> List[MatchOut]:
+def list_matches(repo: Repo, show: ShowRatings) -> List[MatchOut]:
     """
     Lists all matches, newest first.
 
     :param repo:
         Where matches are stored.
+    :param show:
+        Whether the request may see ratings, skills and form.
     """
-    return [_match_out(m) for m in repo.list_matches()]
+    return [_match_out(m, show) for m in repo.list_matches()]
 
 
-@app.post("/matches", status_code=status.HTTP_201_CREATED)
+@app.post(
+    "/matches",
+    status_code=status.HTTP_201_CREATED,
+    dependencies=NEEDS_PASSCODE,
+)
 def create_match(body: MatchCreate, repo: Repo) -> MatchOut:
     """
     Balances the named players into two teams and stores them as a match.
@@ -428,7 +557,7 @@ def create_match(body: MatchCreate, repo: Repo) -> MatchOut:
 
 
 @app.get("/matches/{match_id}")
-def get_match(match_id: int, repo: Repo) -> MatchOut:
+def get_match(match_id: int, repo: Repo, show: ShowRatings) -> MatchOut:
     """
     Returns one match.
 
@@ -436,6 +565,8 @@ def get_match(match_id: int, repo: Repo) -> MatchOut:
         The match ID.
     :param repo:
         Where matches are stored.
+    :param show:
+        Whether the request may see ratings, skills and form.
 
     :raises:
         MatchNotFoundError: If the match does not exist (404).
@@ -443,10 +574,14 @@ def get_match(match_id: int, repo: Repo) -> MatchOut:
     match = repo.get_match(match_id)
     if match is None:
         raise MatchNotFoundError(match_id)
-    return _match_out(match)
+    return _match_out(match, show)
 
 
-@app.delete("/matches/{match_id}", status_code=status.HTTP_204_NO_CONTENT)
+@app.delete(
+    "/matches/{match_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=NEEDS_PASSCODE,
+)
 def delete_match(match_id: int, repo: Repo) -> None:
     """
     Deletes a match. If it has a result, that result's form changes are
@@ -463,7 +598,7 @@ def delete_match(match_id: int, repo: Repo) -> None:
     services.delete_match(repo, match_id)
 
 
-@app.post("/matches/{match_id}/swap")
+@app.post("/matches/{match_id}/swap", dependencies=NEEDS_PASSCODE)
 def swap_players(match_id: int, body: SwapIn, repo: Repo) -> MatchOut:
     """
     Swaps two players between the teams of a match that hasn't been played.
@@ -490,7 +625,7 @@ def swap_players(match_id: int, body: SwapIn, repo: Repo) -> MatchOut:
 # --------------------------
 
 
-@app.put("/matches/{match_id}/result")
+@app.put("/matches/{match_id}/result", dependencies=NEEDS_PASSCODE)
 def record_result(match_id: int, body: ResultIn, repo: Repo) -> MatchOut:
     """
     Sets the winner and updates players' form, replacing any earlier result
@@ -511,7 +646,7 @@ def record_result(match_id: int, body: ResultIn, repo: Repo) -> MatchOut:
     return _match_out(services.record_result(repo, match_id, body.winner))
 
 
-@app.delete("/matches/{match_id}/result")
+@app.delete("/matches/{match_id}/result", dependencies=NEEDS_PASSCODE)
 def clear_result(match_id: int, repo: Repo) -> MatchOut:
     """
     Marks a match as not played, undoing its result's form changes.

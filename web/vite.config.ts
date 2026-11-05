@@ -13,6 +13,7 @@ export default defineConfig({
       "/players": API,
       "/matches": API,
       "/healthz": API,
+      "/auth": API,
     },
   },
 });

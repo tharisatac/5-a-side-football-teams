@@ -2,7 +2,7 @@ import { useState } from "react";
 
 import { api, Player, SKILLS } from "../api";
 import type { Run } from "../App";
-import { formTrend, rating } from "../format";
+import { formTrend, initials, rating } from "../format";
 import PlayerEditor from "./PlayerEditor";
 
 const SHORT: Record<string, string> = {
@@ -16,11 +16,23 @@ const SHORT: Record<string, string> = {
 
 const TREND_ARROW = { up: "▲", down: "▼", flat: "■" };
 
-/** Everyone in the squad, best first. Click a card to edit that player. */
-export default function Squad({ players, run }: { players: Player[]; run: Run }) {
+interface Props {
+  players: Player[];
+  run: Run;
+  /** Asks for the passcode (viewers can't see skills, so can't edit). */
+  unlock: () => void;
+}
+
+/**
+ * Everyone in the squad: best first with the passcode, otherwise by name
+ * (viewers don't see ratings). Click a card to edit that player.
+ */
+export default function Squad({ players, run, unlock }: Props) {
   // The player being edited, "new" when adding one, or null when closed.
   const [editing, setEditing] = useState<Player | "new" | null>(null);
-  const ranked = [...players].sort((a, b) => b.rating - a.rating);
+  const ranked = [...players].sort((a, b) =>
+    a.rating !== null && b.rating !== null ? b.rating - a.rating : a.name.localeCompare(b.name),
+  );
 
   return (
     <>
@@ -52,7 +64,8 @@ export default function Squad({ players, run }: { players: Player[]; run: Run })
               <PlayerCard
                 key={player.name}
                 player={player}
-                onClick={() => setEditing(player)}
+                // Without skills the editor would save defaults over them.
+                onClick={() => (player.skills ? setEditing(player) : unlock())}
               />
             ))}
           </div>
@@ -70,7 +83,19 @@ export default function Squad({ players, run }: { players: Player[]; run: Run })
 }
 
 function PlayerCard({ player, onClick }: { player: Player; onClick: () => void }) {
-  const trend = formTrend(player.form);
+  const { skills, form } = player;
+  // Viewers get the name only.
+  if (skills === null || form === null || player.rating === null) {
+    return (
+      <button className="card" onClick={onClick}>
+        <div className="card-top">
+          <span className="card-badge">{initials(player.name)}</span>
+          <span className="card-name">{player.name}</span>
+        </div>
+      </button>
+    );
+  }
+  const trend = formTrend(form);
   return (
     <button className="card" onClick={onClick}>
       <div className="card-top">
@@ -78,19 +103,16 @@ function PlayerCard({ player, onClick }: { player: Player; onClick: () => void }
         <span className="card-name">{player.name}</span>
       </div>
       <div className={`card-form ${trend}`}>
-        {TREND_ARROW[trend]} Form {player.form}
+        {TREND_ARROW[trend]} Form {form}
       </div>
       <ul className="skill-bars">
         {SKILLS.map((skill) => (
           <li key={skill}>
             <span className="skill-label">{SHORT[skill]}</span>
             <span className="skill-track">
-              <span
-                className="skill-fill"
-                style={{ width: `${player.skills[skill] * 10}%` }}
-              />
+              <span className="skill-fill" style={{ width: `${skills[skill] * 10}%` }} />
             </span>
-            <span className="skill-value">{player.skills[skill]}</span>
+            <span className="skill-value">{skills[skill]}</span>
           </li>
         ))}
       </ul>

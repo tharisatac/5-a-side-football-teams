@@ -128,7 +128,7 @@ function Slider(props: {
 function changes(player: Player, skills: Skills, form: number): PlayerChanges {
   const result: PlayerChanges = {};
   for (const skill of SKILLS) {
-    if (skills[skill] !== player.skills[skill]) result[skill] = skills[skill];
+    if (skills[skill] !== player.skills?.[skill]) result[skill] = skills[skill];
   }
   if (form !== player.form) result.form = form;
   return result;

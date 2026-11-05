@@ -4,10 +4,11 @@ from typing import Iterator
 
 import pytest
 from fastapi import HTTPException
+from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
 
 from src import api, services
-from src.api import _error_response, app, get_repo
+from src.api import _error_response, app, get_repo, require_passcode
 from src.player import InvalidValueError
 from src.repository import PostgresRepository
 
@@ -22,14 +23,30 @@ SKILLS = {
 NAMES = ["Alice", "Bob", "Cara", "Dan"]
 
 
+PASSCODE = "test-passcode"
+
+
 @pytest.fixture
-def client(repo: PostgresRepository) -> Iterator[TestClient]:
+def client(
+    repo: PostgresRepository, monkeypatch: pytest.MonkeyPatch
+) -> Iterator[TestClient]:
     """
-    A client for the API, backed by the temporary `repo` database.
+    A client for the API, backed by the temporary `repo` database. It sends
+    the right passcode with every request, so tests can make changes.
     """
+    monkeypatch.setenv("PASSCODE", PASSCODE)
     app.dependency_overrides[get_repo] = lambda: repo
-    yield TestClient(app)
+    yield TestClient(app, headers={"Authorization": f"Bearer {PASSCODE}"})
     app.dependency_overrides.clear()
+
+
+@pytest.fixture
+def anonymous(client: TestClient) -> TestClient:
+    """
+    A second client on the same database that sends no passcode, like a
+    visitor.
+    """
+    return TestClient(app)
 
 
 @pytest.fixture
@@ -339,7 +356,11 @@ def test_unexpected_value_error_is_a_server_error(client, squad, monkeypatch):
         raise ValueError("internal bug")
 
     monkeypatch.setattr(services, "create_match", broken)
-    unsafe_client = TestClient(app, raise_server_exceptions=False)
+    unsafe_client = TestClient(
+        app,
+        raise_server_exceptions=False,
+        headers={"Authorization": f"Bearer {PASSCODE}"},
+    )
 
     response = unsafe_client.post("/matches", json={"players": NAMES})
 
@@ -474,6 +495,153 @@ def test_reset_forms(client, squad):
 
     assert response.status_code == 200
     assert {p["form"] for p in response.json()} == {5}
+
+
+# -------------------------------------------------------------------
+# Passcode
+# -------------------------------------------------------------------
+
+
+def test_every_change_needs_the_passcode():
+    """
+    Tests that every route except GET/HEAD requires the passcode, so a new
+    route that changes data can't be added unprotected by mistake.
+    """
+    for route in app.routes:
+        if isinstance(route, APIRoute) and route.methods - {"GET", "HEAD"}:
+            guards = [d.dependency for d in route.dependencies]
+            assert require_passcode in guards, route.path
+
+
+def test_anyone_can_view(anonymous, squad):
+    """
+    Tests that reading needs no passcode.
+    """
+    assert anonymous.get("/players").status_code == 200
+    assert anonymous.get("/matches").status_code == 200
+
+
+def test_viewers_see_names_but_no_numbers(anonymous, squad):
+    """
+    Tests that without the passcode, players come back without their
+    skills, form or rating.
+    """
+    players = anonymous.get("/players").json()
+    alice = anonymous.get("/players/Alice").json()
+
+    assert [p["name"] for p in players] == NAMES
+    for player in players + [alice]:
+        assert player["skills"] is None
+        assert player["form"] is None
+        assert player["rating"] is None
+
+
+def test_a_wrong_passcode_also_sees_no_numbers(anonymous, squad):
+    """
+    Tests that a wrong passcode is treated as a viewer, not an error.
+    """
+    response = anonymous.get(
+        "/players/Alice", headers={"Authorization": "Bearer wrong"}
+    )
+
+    assert response.status_code == 200
+    assert response.json()["rating"] is None
+
+
+def test_viewers_see_teams_without_ratings_in_name_order(
+    client, anonymous, squad
+):
+    """
+    Tests that viewers see who is on each team, sorted by name (the
+    balancer's order would hint at ratings), and no ratings.
+    """
+    names = NAMES + ["Eve", "Finn"]
+    for name in names[len(NAMES) :]:
+        client.post("/players", json={"name": name, "skills": SKILLS})
+    # Ratings chosen so the balancer's order isn't alphabetical.
+    for name, score in zip(names, (1, 10, 2, 9, 3, 8)):
+        client.patch(f"/players/{name}", json={"shooting": score})
+    created = client.post("/matches", json={"players": names}).json()
+    match_id = created["id"]
+    balanced = [
+        [p["name"] for p in created[key]["players"]]
+        for key in ("team1", "team2")
+    ]
+    assert balanced != [sorted(team) for team in balanced]
+
+    for match in (
+        anonymous.get(f"/matches/{match_id}").json(),
+        anonymous.get("/matches").json()[0],
+    ):
+        for key in ("team1", "team2"):
+            team = match[key]
+            names = [p["name"] for p in team["players"]]
+            assert names == sorted(names)
+            assert team["rating"] is None
+            assert all(p["rating"] is None for p in team["players"])
+
+
+def test_passcode_holders_see_the_numbers(client, squad):
+    """
+    Tests that with the passcode, the numbers are included.
+    """
+    alice = client.get("/players/Alice").json()
+
+    assert alice["skills"] == SKILLS
+    assert alice["form"] == 5
+    assert alice["rating"] == 7
+
+
+def test_change_without_passcode_is_refused(anonymous):
+    """
+    Tests that a change with no passcode is refused, tells the browser how
+    to authenticate, and changes nothing.
+    """
+    response = anonymous.post(
+        "/players", json={"name": "Alice", "skills": SKILLS}
+    )
+
+    assert response.status_code == 401
+    assert response.headers["www-authenticate"] == "Bearer"
+    assert anonymous.get("/players").json() == []
+
+
+def test_change_with_wrong_passcode_is_refused(anonymous, squad):
+    """
+    Tests that a wrong passcode is refused and changes nothing.
+    """
+    response = anonymous.delete(
+        "/players/Alice", headers={"Authorization": "Bearer wrong"}
+    )
+
+    assert response.status_code == 401
+    assert anonymous.get("/players/Alice").status_code == 200
+
+
+def test_changes_are_off_without_a_configured_passcode(client, monkeypatch):
+    """
+    Tests that if the server has no passcode set, changes are turned off
+    rather than left open to everyone.
+    """
+    monkeypatch.delenv("PASSCODE")
+
+    response = client.post(
+        "/players", json={"name": "Alice", "skills": SKILLS}
+    )
+
+    assert response.status_code == 503
+
+
+def test_check_passcode(client, anonymous):
+    """
+    Tests the endpoint the UI uses to check a passcode before saving it.
+    """
+    right = {"Authorization": f"Bearer {PASSCODE}"}
+    wrong = {"Authorization": "Bearer wrong"}
+
+    assert anonymous.get("/auth/check", headers=right).status_code == 204
+    assert anonymous.get("/auth/check", headers=wrong).status_code == 401
+    assert anonymous.get("/auth/check").status_code == 401
 
 
 # -------------------------------------------------------------------

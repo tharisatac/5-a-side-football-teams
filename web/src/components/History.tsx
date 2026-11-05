@@ -92,7 +92,7 @@ export default function History({ matches, run }: { matches: Match[]; run: Run }
 function TeamLine({ team, side, won }: { team: Team; side: string; won: boolean }) {
   return (
     <div className={`team-line ${side}${won ? " won" : ""}`}>
-      <span className="team-line-rating">{rating(team.rating)}</span>
+      {team.rating !== null && <span className="team-line-rating">{rating(team.rating)}</span>}
       <span>{team.players.map((p) => p.name).join(", ")}</span>
     </div>
   );

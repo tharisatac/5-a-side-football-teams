@@ -52,7 +52,7 @@ function TeamHalf({ side, team, won, picked, onPick }: TeamHalfProps) {
             <>
               <span className="token-badge">{initials(player.name)}</span>
               <span className="token-name">{player.name}</span>
-              <span className="token-rating">{rating(player.rating)}</span>
+              {player.rating !== null && <span className="token-rating">{rating(player.rating)}</span>}
             </>
           );
           return (
@@ -76,8 +76,12 @@ function TeamHalf({ side, team, won, picked, onPick }: TeamHalfProps) {
   );
 }
 
-/** How evenly matched the teams are, as a tug-of-war bar. */
+/**
+ * How evenly matched the teams are, as a tug-of-war bar. Shows nothing to
+ * viewers, who don't see ratings.
+ */
 export function BalanceBar({ team1, team2 }: { team1: Team; team2: Team }) {
+  if (team1.rating === null || team2.rating === null) return null;
   const total = team1.rating + team2.rating;
   const share = total > 0 ? (team1.rating / total) * 100 : 50;
   const gap = Math.abs(team1.rating - team2.rating);
