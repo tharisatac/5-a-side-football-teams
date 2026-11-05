@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 
-import { api, ApiError, hasPasscode, Match, Player, setPasscode } from "./api";
+import { api, ApiError, getPasscode, Match, Player, setPasscode } from "./api";
 import History from "./components/History";
 import MatchDay from "./components/MatchDay";
 import PasscodeDialog from "./components/PasscodeDialog";
@@ -39,24 +39,10 @@ export default function App() {
   const [matches, setMatches] = useState<Match[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [unlocked, setUnlocked] = useState(hasPasscode);
+  const [unlocked, setUnlocked] = useState(() => getPasscode() !== null);
   // While the passcode dialog is open: how to report back whether it was
   // unlocked, to whoever opened it.
   const [onPasscode, setOnPasscode] = useState<((unlocked: boolean) => void) | null>(null);
-
-  /** Opens the passcode dialog; resolves true once it's unlocked. */
-  const askForPasscode = useCallback(
-    () =>
-      new Promise<boolean>((resolve) => {
-        // A function in state must be wrapped, or React would call it.
-        setOnPasscode(() => (ok: boolean) => {
-          setOnPasscode(null);
-          setUnlocked(hasPasscode());
-          resolve(ok);
-        });
-      }),
-    [],
-  );
 
   const refresh = useCallback(async () => {
     const [newPlayers, newMatches] = await Promise.all([
@@ -66,6 +52,30 @@ export default function App() {
     setPlayers(newPlayers);
     setMatches(newMatches);
   }, []);
+
+  /** Locks or unlocks this device, then reloads to show or hide ratings. */
+  const changeLock = useCallback(
+    (nowUnlocked: boolean) => {
+      if (!nowUnlocked) setPasscode(null);
+      setUnlocked(nowUnlocked);
+      refresh().catch((e) => setError(message(e)));
+    },
+    [refresh],
+  );
+
+  /** Opens the passcode dialog; resolves true once it's unlocked. */
+  const askForPasscode = useCallback(
+    () =>
+      new Promise<boolean>((resolve) => {
+        // A function in state must be wrapped, or React would call it.
+        setOnPasscode(() => (ok: boolean) => {
+          setOnPasscode(null);
+          if (ok) changeLock(true);
+          resolve(ok);
+        });
+      }),
+    [changeLock],
+  );
 
   const run: Run = useCallback(
     async (action) => {
@@ -79,8 +89,7 @@ export default function App() {
             return false;
           }
           // No passcode, or a remembered one that has since changed.
-          setPasscode(null);
-          setUnlocked(false);
+          changeLock(false);
           if (!(await askForPasscode())) return false;
         }
       }
@@ -91,7 +100,7 @@ export default function App() {
       }
       return true;
     },
-    [refresh, askForPasscode],
+    [refresh, askForPasscode, changeLock],
   );
 
   useEffect(() => {
@@ -99,6 +108,16 @@ export default function App() {
       .catch((e) => setError(message(e)))
       .finally(() => setLoaded(true));
   }, [refresh]);
+
+  // A remembered passcode may have been changed since; if so, forget it so
+  // the badge doesn't claim "Editing".
+  useEffect(() => {
+    const remembered = getPasscode();
+    if (remembered === null) return;
+    api.checkPasscode(remembered).catch((e) => {
+      if (e instanceof ApiError && e.status === 401) changeLock(false);
+    });
+  }, [changeLock]);
 
   // Hide the error toast after a few seconds.
   useEffect(() => {
@@ -120,11 +139,7 @@ export default function App() {
           <button
             className="lock-button"
             title={unlocked ? "Lock changes on this device" : "Enter the passcode to make changes"}
-            onClick={() => {
-              if (!unlocked) return void askForPasscode();
-              setPasscode(null);
-              setUnlocked(false);
-            }}
+            onClick={() => (unlocked ? changeLock(false) : void askForPasscode())}
           >
             {unlocked ? "🔓 Editing" : "🔒 View only"}
           </button>
@@ -152,7 +167,7 @@ export default function App() {
         ) : tab === "match" ? (
           <MatchDay players={players} matches={matches} run={run} />
         ) : tab === "squad" ? (
-          <Squad players={players} run={run} />
+          <Squad players={players} run={run} unlock={() => void askForPasscode()} />
         ) : (
           <History matches={matches} run={run} />
         )}

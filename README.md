@@ -23,9 +23,10 @@ cd web && npm run dev                 # 3. the UI (port 5173), own terminal
 Open http://localhost:5173 for the app, or http://127.0.0.1:8000/docs to try
 the API directly. The CLI (`./run ...`, below) only needs step 1.
 
-Anyone can view; making changes needs the passcode (`football` above).
-The UI asks for it the first time you change something and remembers it
-on that device. In `/docs`, click "Authorize" and enter it. Without
+Anyone can see the players, teams and results; making changes, and seeing
+ratings, skills and form, needs the passcode (`football` above). The UI
+asks for it the first time you change something (or tap 🔒 View only) and
+remembers it on that device. In `/docs`, click "Authorize" and enter it. Without
 `PASSCODE` set, the API is read-only.
 
 To stop: Ctrl+C in the API and UI terminals, then `docker compose stop`. Your
@@ -83,9 +84,10 @@ Run `./run --help` (or `./run teams --help`, etc.) for every command.
 
 ## Web API
 Interactive docs at http://127.0.0.1:8000/docs while the API is running. It
-uses the same database and rules as the CLI. Reading is public; every
-change needs the passcode as an `Authorization: Bearer <passcode>`
-header (401 if it's missing or wrong). The CLI doesn't ask for it: it
+uses the same database and rules as the CLI. The passcode goes in an
+`Authorization: Bearer <passcode>` header. Every change needs it (401 if
+it's missing or wrong). Reading is public, but without it `skills`,
+`form` and `rating` are `null` and team players are listed by name. The CLI doesn't ask for it: it
 talks to the database directly, so whoever can run it already has full
 access.
 

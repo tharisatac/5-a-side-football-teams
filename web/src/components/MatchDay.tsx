@@ -129,7 +129,9 @@ export default function MatchDay({ players, matches, run }: Props) {
                 >
                   <span className="chip-badge">{initials(player.name)}</span>
                   <span className="chip-name">{player.name}</span>
-                  <span className="chip-rating">{rating(player.rating)}</span>
+                  {player.rating !== null && (
+                    <span className="chip-rating">{rating(player.rating)}</span>
+                  )}
                 </button>
               ))}
             </div>

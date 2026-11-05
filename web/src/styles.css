@@ -721,7 +721,8 @@ button.token:hover {
   gap: 10px;
 }
 
-.card-rating {
+.card-rating,
+.card-badge {
   display: grid;
   place-items: center;
   width: 48px;
@@ -732,6 +733,11 @@ button.token:hover {
   font-family: var(--display);
   font-size: 1.5rem;
   font-weight: 800;
+}
+
+/* A viewer's card: initials instead of the rating. */
+.card-badge {
+  font-size: 1.2rem;
 }
 
 .card-name {

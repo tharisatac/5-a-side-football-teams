@@ -33,7 +33,7 @@ lately. The group needs:
 | User | Needs |
 |---|---|
 | **Organiser** (one or two people) | Add players, pick teams on match day, adjust by hand, record the winner, fix mistakes |
-| **Players** | See the teams and the history on their phones |
+| **Players** | See the teams and the history on their phones, without seeing anyone's ratings |
 | **Developer/maintainer** | Run it locally in one command, test it, deploy it |
 
 ### 1.3 Goals and non-goals
@@ -68,6 +68,7 @@ lately. The group needs:
 | F-P5 | A player who has appeared in any match **cannot be removed**, so history stays complete. Delete their matches first |
 | F-P6 | "Reset forms" sets every player's form back to 5 (e.g. new season) |
 | F-P7 | Players can be exported to and imported from CSV. Bad rows are skipped and reported, not fatal |
+| F-P8 | Only passcode holders see skills, form and ratings (players' and teams'). Everyone else sees names, teams and results, with each team's players listed by name, since the balancer's order would hint at ratings |
 
 **Rating.** A player's rating is a weighted average of their skills,
 scaled by form:
@@ -142,8 +143,10 @@ stateDiagram-v2
 | `PUT /matches/{id}/result` | Set or change the winner (idempotent) | 200 |
 | `DELETE /matches/{id}/result` | Clear the winner (idempotent) | 200 |
 
-Reading is public. Every request that changes data (and `/auth/check`)
-needs the shared passcode as an `Authorization: Bearer <passcode>` header.
+Every request that changes data (and `/auth/check`) needs the shared
+passcode as an `Authorization: Bearer <passcode>` header. Reading is
+public, but `skills`, `form` and `rating` are `null` unless the passcode is
+sent (F-P8).
 
 Errors are `{"detail": "<message>"}` with a status code that says whose
 fault it was:
@@ -455,8 +458,17 @@ sequenceDiagram
     end
 ```
 
-- **Who needs it:** reading is public. Every route that changes data
-  depends on `require_passcode` (a FastAPI dependency).
+- **Who needs it:** every route that changes data depends on
+  `require_passcode` (a FastAPI dependency), which refuses with 401.
+- **Reads are public, numbers are not:** read routes depend on
+  `can_see_ratings`, which never refuses. Without the passcode (or with a
+  wrong one) the response simply has `skills`, `form` and `rating` set to
+  `null`, and team players sorted by name. This is enforced by the API,
+  not just hidden by the UI, so the numbers can't be read from `/docs` or
+  the browser's network tab.
+- **The UI follows the data:** the types mark the numbers as nullable, so
+  TypeScript flagged every place that showed one. Viewers get name-only
+  cards and no balance bar. Unlocking or locking reloads the data.
 - **Secure by default:** a test walks every route and fails if any non-GET
   route lacks the check, so a new route can't be added unprotected by
   mistake.
@@ -684,7 +696,8 @@ How it's packaged, connected and protected in the cloud.
 #### 4.5.3 Shared passcode, not user accounts
 
 - **Chosen:**
-  - Reads are public.
+  - Names, teams and results are public. Ratings, skills and form are
+    shown only with the passcode.
   - Changes require one shared passcode, kept in an environment variable
     (from Google Secret Manager in the cloud). Details in §3.9.
   - The UI remembers it per device in `localStorage`.
@@ -695,11 +708,16 @@ How it's packaged, connected and protected in the cloud.
     reload.
 - **Why:** it matches the trust model of one friend group, adds no sign-up
   friction, and keeps the secret out of code and images. Public viewing
-  means players can check teams without being told the passcode.
+  means players can check teams without being told the passcode. Hiding
+  the numbers avoids anyone being upset by their rating.
 - **Cost:**
   - There's no per-person audit trail.
   - Rotating the passcode means telling everyone.
   - Anyone with the passcode can do anything.
+  - **Null fields rather than a separate viewer model.** One response
+    shape is simple, and the nulls are self-explanatory in `/docs`. A
+    separate model would make the "viewer" contract stricter but doubles
+    the models.
   - **No limit on guesses yet.** The defence today is a long passcode
     (e.g. three random words). A real limit needs shared storage, because
     Cloud Run may run several instances, each with its own memory.

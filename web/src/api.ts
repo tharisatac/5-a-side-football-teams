@@ -14,17 +14,19 @@ export type SkillName = (typeof SKILLS)[number];
 export type Skills = Record<SkillName, number>;
 export type TeamKey = "team1" | "team2";
 
+// Skills, form and ratings are null unless the passcode was sent: anyone
+// can view, but only the organisers see the numbers.
 export interface Player {
   name: string;
-  skills: Skills;
-  form: number;
-  rating: number;
+  skills: Skills | null;
+  form: number | null;
+  rating: number | null;
 }
 
 export interface Team {
   players: Player[];
   bonus: number;
-  rating: number;
+  rating: number | null;
 }
 
 export interface Match {
@@ -47,7 +49,7 @@ export class ApiError extends Error {
   }
 }
 
-// The shared passcode for making changes, remembered on this device so it's
+// The shared passcode, remembered on this device so it's
 // only typed once. Storage can be unavailable (e.g. private browsing), so
 // every access is guarded; without it the passcode lasts until a reload.
 const PASSCODE_KEY = "passcode";
@@ -59,8 +61,8 @@ let passcode: string | null = (() => {
   }
 })();
 
-/** Whether a passcode is remembered, i.e. changes are unlocked. */
-export const hasPasscode = () => passcode !== null;
+/** The remembered passcode, or null if this device is locked. */
+export const getPasscode = () => passcode;
 
 /** Remembers a passcode, or forgets it with null. */
 export function setPasscode(value: string | null) {
@@ -80,8 +82,9 @@ export function setPasscode(value: string | null) {
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
   const headers: Record<string, string> = {};
   if (body !== undefined) headers["Content-Type"] = "application/json";
-  // Reading is public, so the passcode is only sent with changes.
-  if (method !== "GET" && passcode !== null) headers["Authorization"] = `Bearer ${passcode}`;
+  // Sent with every request: changes need it, and reads include the
+  // ratings only when it's there.
+  if (passcode !== null) headers["Authorization"] = `Bearer ${passcode}`;
   const response = await fetch(path, {
     method,
     headers,
